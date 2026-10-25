@@ -94,7 +94,7 @@ if(require.main===module){
  if(!Number.isInteger(port)||port<1||port>65535){console.error('PORT必须是1到65535的整数。');process.exit(1);}
  const server=createServer();
  server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`端口${port}已占用，请关闭旧V2窗口，或修改.env中的PORT。`:error.message);process.exitCode=1;});
- server.listen(port,'127.0.0.1',()=>{
+ server.listen(port,'0.0.0.0',()=>{
   const url=`http://127.0.0.1:${port}/`;
   console.log(`Deadline Hunter V2.0 · 路边队\n已启动：${url}\n使用时保持此窗口开启；按Ctrl+C停止。`);
   if(process.platform==='win32'&&process.env.OPEN_BROWSER==='1')spawn('cmd.exe',['/d','/s','/c',`start "" "${url}"`],{detached:true,stdio:'ignore',windowsHide:true}).unref();
