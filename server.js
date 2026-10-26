@@ -4,6 +4,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {spawn}=require('node:child_process');
 const {analyzeNotification,fail}=require('./ai');
+const {createPush}=require('./push');
 const ROOT=__dirname, PUBLIC=path.join(ROOT,'public');
 const MAX_FILE_BYTES=10*1024*1024,MAX_BODY_BYTES=15*1024*1024;
 const TYPES=['image/png','image/jpeg','image/webp','image/gif'];
@@ -55,16 +56,20 @@ function serveStatic(req,res){
  fs.readFile(file,(error,content)=>{
   if(error){json(res,404,{error:'文件不存在。'});return;}
   const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml'}[path.extname(file)]||'application/octet-stream';
-  res.writeHead(200,{'Content-Type':mime,'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:content);
+  res.writeHead(200,{'Content-Type':pathname.endsWith('.webmanifest')?'application/manifest+json':path.extname(file)==='.png'?'image/png':mime,'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});res.end(req.method==='HEAD'?undefined:content);
  });
 }
 function createServer(){
+ const push=createPush();
  const server=http.createServer(async(req,res)=>{
   const headers=cors(req),origin=req.headers.origin;
   if(req.url.startsWith('/api/')&&origin&&!headers['Access-Control-Allow-Origin']){json(res,403,{error:'该网页来源未允许访问API。'});return;}
   if(req.method==='OPTIONS'){res.writeHead(204,headers);res.end();return;}
+  if(req.url.startsWith('/api/push/')){
+   try{await push.handle(req,res,readJson,json,headers);}catch(error){if(!res.destroyed)json(res,error.status||503,{ok:false,error:error.publicMessage||'提醒服务暂不可用，本地任务仍可使用。'},headers);}return;
+  }
   if(req.url==='/api/health'&&req.method==='GET'){
-   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.0.1',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
+   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.1.0',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
   }
   if(['/api/analyze','/api/test-connection'].includes(req.url)&&req.method==='POST'){
    try{
@@ -94,9 +99,10 @@ if(require.main===module){
  if(!Number.isInteger(port)||port<1||port>65535){console.error('PORT必须是1到65535的整数。');process.exit(1);}
  const server=createServer();
  server.on('error',error=>{console.error(error.code==='EADDRINUSE'?`端口${port}已占用，请关闭旧V2窗口，或修改.env中的PORT。`:error.message);process.exitCode=1;});
- server.listen(port,'0.0.0.0',()=>{
+ const host=process.env.HOST||(process.env.RENDER==='true'?'0.0.0.0':'127.0.0.1');
+ server.listen(port,host,()=>{
   const url=`http://127.0.0.1:${port}/`;
-  console.log(`Deadline Hunter V2.0 · 路边队\n已启动：${url}\n使用时保持此窗口开启；按Ctrl+C停止。`);
+  console.log(`Deadline Hunter V2.1.0 · 路边队 · 个性计划版（含可选免费推送）\n监听：${host}:${port}\n本机访问：${url}\n按Ctrl+C停止；云端请使用Render提供的HTTPS网址。`);
   if(process.platform==='win32'&&process.env.OPEN_BROWSER==='1')spawn('cmd.exe',['/d','/s','/c',`start "" "${url}"`],{detached:true,stdio:'ignore',windowsHide:true}).unref();
  });
 }

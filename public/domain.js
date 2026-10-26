@@ -1,6 +1,7 @@
 (function (root) {
   'use strict';
   const T=typeof module!=='undefined'&&module.exports?require('./time'):root.DHTime;
+  const P=typeof module!=='undefined'&&module.exports?require('./planner'):root.DHPlanner;
   const categories = ['课程学习', '作业提交', '实验报告', '考试安排', '竞赛活动', '校园事务', '其他'];
   const uid = () => globalThis.crypto.randomUUID();
   const pad = n => String(n).padStart(2, '0');
@@ -45,6 +46,7 @@
       category: categories.includes(value.category) ? value.category : '其他',
       priority: ['高', '中', '低'].includes(value.priority) ? value.priority : '中',
       status: executionStatus==='completed'?'done':'todo', checklist,
+      plan:P.clean(value.plan,{strict}),planSuggestion:P.suggestion({planSuggestion:value.planSuggestion,title,description:value.description,evidence:value.evidence}),
       notes: String(value.notes || '').slice(0, 2000), evidence: String(value.evidence || '').slice(0, 2000),
       uncertain, dateConfirmed: timeEvidence.confirmed,
       estimatedHours: Math.max(0, Math.min(1000, Number(value.estimatedHours) || 0)),
@@ -89,10 +91,13 @@
       }
       if(task.deadlineKind!=='none'&&(!(task.dueAt||task.dueDate||task.startsAt)||!task.dateConfirmed)){severity=Math.max(severity,1);reasons.push(task.timeEvidence?.inferred?'截止时间为推算值，尚未核实':'日期尚未人工确认');suggestions.push('核对时间依据；核实前不触发小时级逾期提醒');}
       if(task.executionStatus==='unknown'){severity=Math.max(severity,1);reasons.push('任务执行状态未知');suggestions.push('确认是否已提交或已完成');}
+      const plan=P.summary(task,T.today(now.getTime()));
+      if(plan?.overdue){severity=Math.max(severity,2);reasons.push(`个人执行计划有${plan.overdue}项安排已过日但未完成（不等同于通知已逾期）`);suggestions.push('核对实际进度，并按个人习惯重新安排剩余计划');}
+      if(plan?.changed){severity=Math.max(severity,1);reasons.push('截止信息已变化，原执行计划需要重新核对');suggestions.push('预览并确认剩余计划，不自动覆盖已完成部分');}
       return { task, severity, reasons, suggestions: [...new Set(suggestions)] };
     }).filter(x => x.severity).sort((a,b) => b.severity - a.severity || (a.task.dueAt || '9999').localeCompare(b.task.dueAt || '9999'));
   }
-  const trackedFields = ['title','course','executionStatus','description','dueAt','dueDate','deadlineKind','timeEvidence','startsAt','dateText','location','priority','category','notes','evidence','uncertain','checklist','dateConfirmed'];
+  const trackedFields = ['title','course','executionStatus','description','dueAt','dueDate','deadlineKind','timeEvidence','startsAt','dateText','location','priority','category','notes','evidence','uncertain','checklist','dateConfirmed','plan'];
   function differences(before, after) {
     return trackedFields.filter(key => {
       if (key === 'checklist') return JSON.stringify(before[key].map(x => x.text)) !== JSON.stringify(after[key].map(x => x.text));
@@ -127,6 +132,7 @@
     const before = state.tasks[index];
     if (before.updatedAt !== proposal.baseUpdatedAt) throw new Error('任务已修改，请重新比较后再确认');
     const after = cleanTask({ ...before, ...proposal.proposed, id:before.id,
+      plan:before.plan,planSuggestion:proposal.proposed.planSuggestion||before.planSuggestion,
       createdAt:before.createdAt, updatedAt:new Date().toISOString(),
       checklist: proposal.proposed.checklist.map(item=>{ const old=before.checklist.find(x=>x.text===item.text); return old || item; }),
       sourceId:before.sourceId || proposal.sourceId,
