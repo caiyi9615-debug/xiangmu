@@ -11,8 +11,20 @@ let state,health=null,page='dashboard',busy=false,saveBusy=false;
 let filter={search:'',status:'all',category:'all',sort:'due'};
 let capture={file:null,image:'',text:'',drafts:[],source:null,error:'',baseAt:'',reviewed:false};
 let calendarMonth=new Date(T.today()+'T12:00'),selectedDay=T.today();calendarMonth.setDate(1);
-let currentTaskId=null,toastTimer,revision=0;
+let currentTaskId=null,toastTimer,revision=0,routeRevision=0;
 const app=$('#app');
+function closeDialogs(){
+  for(const id of ['confirmDialog','timeDialog','duplicateDialog','planDialog','taskDialog']){
+    const modal=document.getElementById(id);if(!modal?.open)continue;
+    if(!['taskDialog','planDialog'].includes(id))modal.dispatchEvent(new Event('cancel'));
+    if(modal.open)modal.close();
+  }
+}
+function noticeName(text,file){
+  if(file?.name)return file.name;
+  const line=String(text||'').split(/\r?\n/).map(x=>x.trim()).find(Boolean)||'';
+  const chars=Array.from(line);return chars.length?chars.slice(0,24).join('')+(chars.length>24?'…':''):'文字通知';
+}
 function toast(message,error=false){clearTimeout(toastTimer);$('#toast').textContent=message;$('#toast').className=error?'error-toast':'';$('#toast').hidden=false;toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 async function mutate(fn,message){
   if(saveBusy){toast('正在保存，请稍候');return false;}
@@ -35,6 +47,7 @@ function route(next){location.hash=next;}
 function taskRow(task){return `<div class="task-row"><button class="circle-check ${T.completed(task)?'checked':''}" data-action="toggle" data-id="${esc(task.id)}" aria-label="${T.completed(task)?'恢复未提交':'完成'} ${esc(task.title)}">${T.completed(task)?'✓':''}</button><div class="task-main"><button class="task-title" data-action="detail" data-id="${esc(task.id)}">${esc(task.title)}</button><div class="task-meta"><span>${esc(T.label(task))}</span>${task.course?`<span>${esc(task.course)}</span>`:''}<span class="tag">${esc(T.statuses[task.executionStatus]||'未知')}</span><span class="tag">${esc(task.category)}</span>${priorityTag(task)}${task.demo?'<span class="demo-marker">演示</span>':''}</div></div>${task.checklist.length?`<span class="muted small">${D.progress(task)}%</span>`:''}</div>`;}
 function render(){
   document.documentElement.dataset.theme=state.theme||'light';
+  try{if(localStorage.getItem('dh-theme')!==(state.theme||'light'))localStorage.setItem('dh-theme',state.theme||'light');}catch{}
   $('#navigation').innerHTML=Object.entries(pages).map(([key,label])=>`<a href="#${key}" class="${page===key?'active':''}" ${page===key?'aria-current="page"':''}><span class="nav-icon">${icon(key)}</span>${label}${key==='changes'&&state.changes.some(x=>x.status==='pending')?`<span class="nav-count">${state.changes.filter(x=>x.status==='pending').length}</span>`:''}</a>`).join('');
   $('#breadcrumb').textContent='工作空间 / '+pages[page];
   app.innerHTML=({dashboard:renderDashboard,capture:renderCapture,tasks:renderTasks,calendar:renderCalendar,changes:renderChanges,radar:renderRadar,settings:renderSettings})[page]();
@@ -136,7 +149,7 @@ async function analyze(){
   if(capture.drafts.length&&!await confirmAction('重新识别？','当前尚未加入任务的识别结果将被替换。'))return;
   const input={text:capture.text.trim()};
   if(capture.image){const match=capture.image.match(/^data:([^;]+);base64,(.+)$/s);input.image={mimeType:match[1],data:match[2]};}
-  const submittedSource={id:D.uid(),name:capture.file?.name||capture.text.slice(0,30)||'文字通知',kind:capture.image?'image':'text',image:capture.image,text:capture.text,createdAt:stamp(),demo:false};
+  const submittedSource={id:D.uid(),name:noticeName(capture.text,capture.file),kind:capture.image?'image':'text',image:capture.image,text:capture.text,createdAt:stamp(),demo:false};
   busy=true;capture.error='';render();
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),95000);
   try{
@@ -154,8 +167,10 @@ async function analyze(){
   finally{clearTimeout(timer);busy=false;if(page==='capture')render();}
 }
 async function addDraft(ids){
+  const navigation=routeRevision;
   syncDrafts();
-  if(!capture.reviewed&&capture.drafts.some(t=>ids.includes(t.id)&&TimeReview.needs(t)))await reviewTime(ids);
+  if(!capture.reviewed&&capture.drafts.some(t=>ids.includes(t.id)&&TimeReview.needs(t))){if(!await reviewTime(ids))return;}
+  if(navigation!==routeRevision)return;
   const selected=[],invalid=[];
   for(const t of capture.drafts.filter(t=>ids.includes(t.id))){try{selected.push(D.cleanTask(t,{strict:true}));}catch(error){invalid.push(t.id);}}
   if(!selected.length){if(invalid.length)toast('任务标题为空，请先填写标题；缺少时间不会阻止保存。',true);return;}
@@ -163,6 +178,7 @@ async function addDraft(ids){
   for(const t of selected){
     const matches=D.candidates({...t,sourceFingerprint:capture.source?.fingerprint},[...state.tasks,...fresh],state.sources,state.history);
     const decision=matches.length?await duplicateChoice(t,matches):{action:'new'};
+    if(navigation!==routeRevision)return;
     if(decision.action==='cancel')continue;
     processed.push(t.id);
     if(decision.action==='new')fresh.push(t);
@@ -181,10 +197,12 @@ async function addDraft(ids){
 async function reviewTime(ids=capture.drafts.map(t=>t.id)){
   syncDrafts();const selected=capture.drafts.filter(t=>ids.includes(t.id));if(!selected.length)return;
   const result=await TimeReview.open(selected,{baseAt:capture.baseAt});
+  if(result.cancelled)return false;
   capture.baseAt=result.baseAt;capture.reviewed=true;
   capture.drafts=capture.drafts.map(t=>result.tasks.find(x=>x.id===t.id)||t);
   if(capture.source){capture.source.screenshotAt=result.baseAt;capture.source.screenshotTimeSource=result.tasks.find(t=>t.timeEvidence?.baseAt)?.timeEvidence.baseSource||'未提供/待核实';}
   render();
+  return true;
 }
 function duplicateChoice(task,matches){return new Promise(resolve=>{
  const dialog=$('#duplicateDialog');
@@ -229,7 +247,7 @@ function renderRadar(){
     `<div class="notice ${risks.some(r=>r.severity>=3)?'warn':''}">未来48小时有 ${soon.length} 项任务截止，${soon.filter(t=>t.checklist.some(x=>!x.done)).length} 项仍有准备工作未完成。${risks.length?'建议从下方最高风险任务开始处理。':'当前没有需要关注的风险。'}</div><div class="stats-mini"><span><b>${risks.filter(r=>r.severity===4).length}</b>逾期</span><span><b>${risks.filter(r=>r.severity===3).length}</b>紧急</span><span><b>${risks.filter(r=>r.severity===2).length}</b>关注</span><span><b>${risks.filter(r=>r.severity===1).length}</b>准备 / 日期待确认</span></div>
     <section class="panel">${risks.length?risks.map(r=>`<article class="risk-item ${r.severity>=3?'severe':''}"><header><button class="task-title" data-action="detail" data-id="${esc(r.task.id)}">${esc(r.task.title)}</button><span class="tag risk-${r.severity}">${['','准备提醒','需要关注','紧急处理','已过期'][r.severity]}</span></header><p class="small muted">截止：${esc(T.label(r.task))} · 材料进度 ${D.progress(r.task)}%</p><ul>${r.reasons.map(x=>`<li>${esc(x)}</li>`).join('')}</ul><div class="risk-advice">行动建议：${r.suggestions.map(esc).join('；')}。</div></article>`).join(''):empty('当前没有风险任务','完成任务后预警会自动消失。')}</section><p class="small muted" style="margin-top:16px">耗时风险只在你填写“预计耗时”和“截止前剩余可用时间”后计算，不用自然时间代替你的真实可用时间。</p>`;
 }
-function renderSettings(){return head('系统设置','管理AI连接、本地数据和使用偏好。')+`<div class="grid-equal"><div class="stack"><section class="panel"><h2>AI 服务</h2><div class="settings-row"><div><strong>DeepSeek ${health?.deepseekConfigured?'密钥已配置':'待配置密钥'}</strong><p>当前模型：${esc(health?.model||'deepseek-flash')}</p><p>配置状态不代表真实调用成功；测试会发送一次简短请求。</p></div>${button('实际连接测试','test-ai','','primary')}</div><p class="small muted">运行项目中的 config-api.cmd，填写 DEEPSEEK_API_KEY 后重启。密钥只在后端读取，页面不展示或保存密钥。</p></section><section class="panel"><h2>本地数据与备份</h2><div class="settings-row"><div><strong>导出完整备份</strong><p>包含任务、原始通知、图片、变更与历史。</p></div>${button('导出JSON','export')}</div><div class="settings-row"><div><strong>恢复备份</strong><p>导入前校验格式；确认后替换当前本地数据。</p></div>${button('导入备份','import')}</div><div class="settings-row"><div><strong>体验完整工作流程</strong><p>演示数据明确标注，可单独清除。</p></div>${button('加载演示数据','demo')}</div><div class="settings-row"><div><strong>清空演示数据</strong><p>只删除带“演示”标记的记录。</p></div>${button('清空演示','clear-demo','','danger')}</div><div class="settings-row"><div><strong>清空所有本地数据</strong><p>此操作需确认，建议先导出备份。</p></div>${button('清空全部','clear-all','','danger')}</div></section></div><div class="stack"><section class="panel"><h2>外观与基础使用</h2><div class="settings-row"><div><strong>${state.theme==='dark'?'深色':'浅色'}主题</strong><p>主题会保存在当前浏览器。</p></div>${button('切换明暗','theme')}</div><div class="notice">1. 上传图片或粘贴通知 → AI拆出多个事项。<br>2. 检查原文与日期 → 编辑后加入任务。<br>3. 在任务详情独立勾选材料、确认截止日期。<br>4. 新通知有变化时关联旧任务 → 比较后接受或拒绝。<br>5. 日历、工作台与风险雷达自动联动。</div><p class="small muted">本地数据保存在当前网址、当前浏览器的IndexedDB。换浏览器、换端口不会自动迁移；清除网站数据会删除记录，请定期备份。通知图片只在识别时发给DeepSeek。</p></section><section class="panel"><h2>关于作品</h2><div class="settings-row"><div><strong>Deadline Hunter——AI校园信息捕手</strong><p>智慧校园AI信息管理与任务执行平台</p></div></div><div class="settings-row"><div><strong>开发团队：路边队</strong><p>参赛人数：3人 · 参赛赛道：智慧校园</p></div><span class="tag">V2.1.0</span></div><p class="small muted" style="margin-top:15px">创新闭环：校园信息捕捉 → 多任务理解 → 通知关联与变更确认 → 材料准备 → 风险分析 → 行动执行。</p></section></div></div>`;}
+function renderSettings(){return head('系统设置','管理AI连接、本地数据和使用偏好。')+`<div class="grid-equal"><div class="stack"><section class="panel"><h2>AI 服务</h2><div class="settings-row"><div><strong>DeepSeek ${health?.deepseekConfigured?'密钥已配置':'待配置密钥'}</strong><p>当前模型：${esc(health?.model||'deepseek-flash')}</p><p>配置状态不代表真实调用成功；测试会发送一次简短请求。</p></div>${button('实际连接测试','test-ai','','primary')}</div><p class="small muted">运行项目中的 config-api.cmd，填写 DEEPSEEK_API_KEY 后重启。密钥只在后端读取，页面不展示或保存密钥。</p></section><section class="panel"><h2>本地数据与备份</h2><div class="settings-row"><div><strong>导出完整备份</strong><p>包含任务、原始通知、图片、变更与历史。</p></div>${button('导出JSON','export')}</div><div class="settings-row"><div><strong>恢复备份</strong><p>导入前校验格式；确认后替换当前本地数据。</p></div>${button('导入备份','import')}</div><div class="settings-row"><div><strong>体验完整工作流程</strong><p>演示数据明确标注，可单独清除。</p></div>${button('加载演示数据','demo')}</div><div class="settings-row"><div><strong>清空演示数据</strong><p>只删除带“演示”标记的记录。</p></div>${button('清空演示','clear-demo','','danger')}</div><div class="settings-row"><div><strong>清空所有本地数据</strong><p>此操作需确认，建议先导出备份。</p></div>${button('清空全部','clear-all','','danger')}</div></section></div><div class="stack"><section class="panel"><h2>外观与基础使用</h2><div class="settings-row"><div><strong>${state.theme==='dark'?'深色':'浅色'}主题</strong><p>主题会保存在当前浏览器。</p></div>${button('切换明暗','theme')}</div><div class="notice">1. 上传图片或粘贴通知 → AI拆出多个事项。<br>2. 检查原文与日期 → 编辑后加入任务。<br>3. 在任务详情独立勾选材料、确认截止日期。<br>4. 新通知有变化时关联旧任务 → 比较后接受或拒绝。<br>5. 日历、工作台与风险雷达自动联动。</div><p class="small muted">本地数据保存在当前网址、当前浏览器的IndexedDB。换浏览器、换端口不会自动迁移；清除网站数据会删除记录，请定期备份。通知图片只在识别时发给DeepSeek。</p></section><section class="panel"><h2>关于作品</h2><div class="settings-row"><div><strong>Deadline Hunter——AI校园信息捕手</strong><p>智慧校园AI信息管理与任务执行平台</p></div></div><div class="settings-row"><div><strong>开发团队：路边队</strong><p>参赛人数：3人 · 参赛赛道：智慧校园</p></div><span class="tag">V2.1.1</span></div><p class="small muted" style="margin-top:15px">创新闭环：校园信息捕捉 → 多任务理解 → 通知关联与变更确认 → 材料准备 → 风险分析 → 行动执行。</p></section></div></div>`;}
 function renderSource(source){if(!source)return '<p class="small muted">手动创建，或来源记录不存在。</p>';return `<div class="inline-source"><strong>${esc(source.name)}</strong> · ${esc(new Date(source.createdAt).toLocaleString('zh-CN'))}${source.demo?' · 演示数据':''}</div>${source.image&&/^data:image\/(png|jpeg|webp|gif);base64,/.test(source.image)?`<img class="source-image" src="${esc(source.image)}" alt="原始通知图片">`:''}${source.text?`<pre class="source-text">${esc(source.text)}</pre>`:''}`;}
 function openTask(id,edit=false,day=''){
   currentTaskId=id||null;const task=state.tasks.find(t=>t.id===id);
@@ -339,7 +357,7 @@ document.addEventListener('change',async e=>{
   if(e.target.id==='importFile')await importBackup(e.target.files[0]);
 });
 document.addEventListener('input',e=>{if(e.target.id==='taskSearch'){const pos=e.target.selectionStart;filter.search=e.target.value;render();$('#taskSearch').focus();$('#taskSearch').setSelectionRange(pos,pos);}});
-window.addEventListener('hashchange',()=>{syncDrafts();page=pages[location.hash.slice(1)]?location.hash.slice(1):'dashboard';$('#sidebar').classList.remove('open');render();window.scrollTo(0,0);});
+window.addEventListener('hashchange',()=>{routeRevision++;closeDialogs();syncDrafts();page=pages[location.hash.slice(1)]?location.hash.slice(1):'dashboard';$('#sidebar').classList.remove('open');render();window.scrollTo(0,0);});
 window.addEventListener('dragover',e=>{e.preventDefault();});window.addEventListener('drop',e=>e.preventDefault());
 setInterval(()=>{if(state&&['dashboard','radar'].includes(page)&&!saveBusy&&!$('#taskDialog').open)render();},60000);
 setInterval(()=>{if(state)window.DHPush?.sync(state.tasks);},60000);

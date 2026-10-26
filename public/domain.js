@@ -27,6 +27,13 @@
       baseAt:T.valid(rawTime.baseAt)||'',baseSource:String(rawTime.baseSource||'未提供可靠截图时间').slice(0,200),method:String(rawTime.method||'原文提取，待人工核实').slice(0,1000),
       inferred:rawTime.inferred===true,precision:String(rawTime.precision||'未知').slice(0,200),confirmed:rawTime.confirmed===true||value.dateConfirmed===true,
       verification:['pending','estimated','confirmed','date_only','none'].includes(rawTime.verification)?rawTime.verification:(value.dateConfirmed?'confirmed':'pending')};
+    // 只在有实际日期且经过用户确认时修正显示，不把无日期事项冒充精确时间。
+    if(timeEvidence.confirmed&&(deadlineKind==='datetime'&&dueAt||deadlineKind==='date'&&dueDate)){
+      if(['pending','estimated'].includes(timeEvidence.verification))timeEvidence.verification=deadlineKind==='date'?'date_only':'confirmed';
+      if(!timeEvidence.raw.trim()){timeEvidence.type='manual';timeEvidence.method='用户直接填写并确认（无原文时间依据）';}
+      else if(timeEvidence.method==='原文提取，待人工核实')timeEvidence.method='原文提取，用户已核对';
+      if(timeEvidence.precision==='未知')timeEvidence.precision=deadlineKind==='date'?'仅日期':'分钟';
+    }
     if (strict && value.dueAt && !dueAt) throw new Error('截止日期无效');
     if (strict && value.startsAt && !startsAt) throw new Error('开始日期无效');
     const checklist = Array.isArray(value.checklist) ? value.checklist.slice(0, 40).map(item => ({

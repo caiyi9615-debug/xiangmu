@@ -2,7 +2,7 @@
  'use strict';
  const ZONE='Asia/Shanghai',OFFSET=8*3600000;
  const statuses={unsubmitted:'未提交',submitted:'已提交',completed:'已完成',pending_review:'待批阅',overdue:'已逾期',unknown:'未知'};
- const types={absolute_datetime:'完整日期时间',date_only:'仅日期',relative:'相对日期',duration:'剩余时长',activity:'活动开始',unknown:'无法识别',none:'无截止时间'};
+ const types={absolute_datetime:'完整日期时间',date_only:'仅日期',relative:'相对日期',duration:'剩余时长',activity:'活动开始',manual:'人工填写',unknown:'无法识别',none:'无截止时间'};
  const pad=n=>String(n).padStart(2,'0');
  function dateOnly(value){
   if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))return '';

@@ -37,7 +37,7 @@ window.TimeReview={
       };
       dialog.querySelector('#applyTime').onclick=()=>{collect();dialog.close();resolve({tasks:working,baseAt:T.valid(dialog.querySelector('#screenshotAt').value)||''});};
       dialog.querySelector('#skipTime').onclick=()=>{collect();const kept=original.map((t,i)=>({...t,executionStatus:working[i].executionStatus,status:working[i].executionStatus==='completed'?'done':'todo'}));dialog.close();resolve({tasks:kept,baseAt:context.baseAt||'',skipped:true});};
-      dialog.oncancel=()=>resolve({tasks:original,baseAt:context.baseAt||'',skipped:true});
+      dialog.oncancel=()=>resolve({tasks:original,baseAt:context.baseAt||'',skipped:true,cancelled:true});
       dialog.showModal();
     });
   }
