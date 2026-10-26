@@ -21,9 +21,11 @@
   for(const x of v.items){
    if(!x||typeof x.title!=='string'||!x.title.trim()||(x.date&&!T.dateOnly(x.date)))return invalid();
    const id=typeof x.id==='string'&&x.id.length<=100?x.id:uid();if(ids.has(id))return invalid();ids.add(id);
-   items.push({id,title:x.title.trim().slice(0,200),date:T.dateOnly(x.date)||'',done:x.done===true,locked:x.locked===true,completedAt:typeof x.completedAt==='string'?x.completedAt:'',snapshot:x.snapshot===true});
+   items.push({id,title:x.title.trim().slice(0,200),description:String(x.description||'').slice(0,1200),phase:String(x.phase||'').slice(0,100),minutes:int(x.minutes,0,120,0),date:T.dateOnly(x.date)||'',done:x.done===true,locked:x.locked===true,completedAt:typeof x.completedAt==='string'?x.completedAt:'',snapshot:x.snapshot===true});
   }
-  return {version:1,mode:v.mode==='stages'?'stages':'quantity',unit:String(v.unit||'项').trim().slice(0,20)||'项',items,rules:rules(v.rules),
+  const g=v.guidance&&typeof v.guidance==='object'?v.guidance:null;
+  const guidance=g?{summary:String(g.summary||'').slice(0,1500),reasoning:String(g.reasoning||'').slice(0,1500),answers:Array.isArray(g.answers)?g.answers.slice(0,5).map(a=>({question:String(a.question||'').slice(0,300),answer:String(a.answer||'').slice(0,2000)})):[],assumptions:Array.isArray(g.assumptions)?g.assumptions.slice(0,12).map(x=>String(x).slice(0,500)):[],estimatedMinutes:int(g.estimatedMinutes,0,100000,0),dailyMinutes:int(g.dailyMinutes,0,720,0),focusMinutes:int(g.focusMinutes,0,120,0),source:String(g.source||'AI建议，须核对').slice(0,200)}:null;
+  return {version:1,mode:v.mode==='stages'?'stages':'quantity',unit:String(v.unit||'项').trim().slice(0,20)||'项',items,rules:rules(v.rules),guidance,
    deadlineSnapshot:String(v.deadlineSnapshot||'').slice(0,30),confirmed:v.confirmed===true,
    createdAt:typeof v.createdAt==='string'?v.createdAt:new Date().toISOString(),updatedAt:typeof v.updatedAt==='string'?v.updatedAt:new Date().toISOString()};
  }
@@ -70,6 +72,7 @@
    dates.set(x.date,(dates.get(x.date)||0)+1);
   }
   for(const [date,n] of dates)if(n>r.maxPerDay&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 安排${n}项，超过每天${r.maxPerDay}项上限。`);
+  if(plan.guidance?.dailyMinutes&&plan.guidance?.focusMinutes)for(const [date,n] of dates)if(n*plan.guidance.focusMinutes>plan.guidance.dailyMinutes&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 的分段预留超过已确认的每日${plan.guidance.dailyMinutes}分钟预算，请减少当天安排或明确修改时间预算。`);
   return [...new Set(errors)];
  }
  function generate({task={},items,rules:input,mode='quantity',unit='项',existing=null,today=T.today()}){

@@ -2,11 +2,11 @@
 window.DHPlannerUI=(()=>{
  const P=window.DHPlanner,T=window.DHTime;
  const e=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- let api,taskId,baseStamp,draft=null,oldPlan=null,dragged='';
+ let api,taskId,baseStamp,draft=null,oldPlan=null,dragged='',adviceTemplate=null,advisoryGuidance=null;
  const dialog=()=>document.getElementById('planDialog');
  const getTask=()=>api.getState().tasks.find(x=>x.id===taskId);
  const btn=(label,action,extra='',cls='')=>`<button type="button" class="button ${cls}" data-plan-action="${action}" ${extra}>${label}</button>`;
- const opening=(task,label)=>`<button type="button" class="button text compact" data-plan-open="${e(task.id)}">${label|| (task.plan?'查看计划':'制定个性计划')}</button>`;
+ const opening=(task,label)=>(!task.plan?`<button type="button" class="button primary compact" data-advisor-open="${e(task.id)}">先问我，再安排</button>`:'')+`<button type="button" class="button text compact" data-plan-open="${e(task.id)}">${label|| (task.plan?'查看计划':'手动DIY')}</button>`;
  function bar(task){const s=P.summary(task);return s?`<div class="plan-progress"><strong>${s.done} / ${s.total}${e(task.plan.unit)} <span>${s.percent}%</span></strong><div class="progress-track" role="progressbar" aria-label="${e(task.title)}任务完成进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${s.percent}"><span style="width:${s.percent}%"></span></div><small>${s.complete?'工作量完成，提交状态需单独确认':s.overdue?`${s.overdue}项计划已落后，实际进度不会自动增长`:s.next?`接下来 ${s.next.date} · ${e(s.next.title)}`:'暂无待执行子任务'}</small>${s.changed?'<small class="error">截止信息已变化，请重新核对计划</small>':''}</div>`:'';}
  function weekdays(r){return ['日','一','二','三','四','五','六'].map((name,i)=>`<label><input type="checkbox" name="workday" value="${i}" ${!r.excludedWeekdays.includes(i)?'checked':''}>周${name}</label>`).join('');}
  function formRules(r){return `<div class="form-grid"><label class="field"><span>计划开始日期</span><input name="startDate" type="date" value="${e(r.startDate)}" required></label><label class="field"><span>计划目标日期（不补截止时刻）</span><input name="endDate" type="date" value="${e(r.endDate)}" required></label><label class="field"><span>执行节奏</span><select name="style">${Object.entries(P.styles).map(([key,label])=>`<option value="${key}" ${r.style===key?'selected':''}>${label}</option>`).join('')}</select></label><label class="field"><span>此大任务每天最多完成几项</span><input name="maxPerDay" type="number" min="1" max="100" value="${r.maxPerDay}" required></label><label class="field"><span>预留检查/提交缓冲天数</span><input name="bufferDays" type="number" min="0" max="90" value="${r.bufferDays}" required></label><label class="field full"><span>允许安排的星期（不勾选即休息）</span><div class="plan-weekdays">${weekdays(r)}</div></label><label class="field full"><span>额外不安排的日期（每行YYYY-MM-DD）</span><textarea name="excludedDates" rows="2" placeholder="例如：2026-11-04">${e(r.excludedDates.join('\n'))}</textarea></label></div>`;}
@@ -19,17 +19,20 @@ window.DHPlannerUI=(()=>{
   const plan=task.plan;if(!plan){configure();return;}
   const oldScroll=dialog().scrollTop;draft=null;const s=P.summary(task);
   dialog().innerHTML=heading('大任务执行计划')+`<div class="dialog-body">${bar(task)}<p class="notice">${e(statsText(task))}</p><p class="small muted">进度来源：手动勾选/用户确认的数量快照；与材料清单、学习通提交状态独立，不会随日期自动增加。当前提交状态：${e(T.statuses[task.executionStatus])}。</p>${s.changed?'<div class="notice warn">任务截止信息已调整，原计划未被自动覆盖，请重新安排剩余计划。</div>':''}${plan.items.some(x=>x.snapshot)?'<div class="notice warn">部分完成数量来自你确认的进度快照；通用序号不代表AI识别到了对应具体章节。</div>':''}<div class="plan-week-summary">${P.weeks(plan).map(w=>`<div><strong>${w.start}～${w.end}</strong><span>${w.items.length}项 · 已完成${w.done}项</span></div>`).join('')}</div><div class="plan-execution">${plan.items.map(x=>`<label class="plan-execution-item ${x.done?'finished':''}"><input type="checkbox" data-plan-done="${e(x.id)}" ${x.done?'checked':''}><span><strong>${e(x.title)}</strong><small>${e(x.date||'未指定日期（完成数量快照）')}${x.snapshot?' · 快照汇总':''}${x.locked?' · 固定安排':''}</small></span>${x.done?'<span class="tag done">已完成</span>':''}</label>`).join('')}</div><p id="planError" class="error" role="alert"></p></div><div class="dialog-foot">${btn('删除计划','remove','','danger')}${btn('导出计划日历','export')}${btn('修改/重排剩余计划','configure','','primary')}</div>`;
+  if(plan.guidance)dialog().querySelector('.plan-execution').insertAdjacentHTML('beforebegin',guidanceHTML(plan.guidance));
+  for(const label of dialog().querySelectorAll('.plan-execution-item')){const item=plan.items.find(x=>x.id===label.querySelector('[data-plan-done]').dataset.planDone);if(item?.description||item?.minutes){const note=document.createElement('small');note.textContent=[item.phase,item.minutes?'估计'+item.minutes+'分钟':'',item.description].filter(Boolean).join(' · ');label.querySelector('span').append(note);}}
   dialog().scrollTop=resetScroll?0:oldScroll;
  }
  function configure(){
   const task=getTask();if(!task)return;
-  oldPlan=task.plan?structuredClone(task.plan):null;baseStamp=task.updatedAt;draft=null;
+  oldPlan=task.plan?structuredClone(task.plan):null;baseStamp=task.updatedAt;draft=null;adviceTemplate=null;advisoryGuidance=oldPlan?.guidance||null;
   const s=P.suggestion(task),r=P.rules(oldPlan?.rules||api.getState().plannerPreferences||{});
   r.startDate=r.startDate&&r.startDate>=T.today()?r.startDate:T.today();
   if(!r.endDate)r.endDate=task.dateConfirmed?(task.dueAt||task.dueDate||'').slice(0,10):'';
   const mode=oldPlan?.mode||'quantity';
   dialog().innerHTML=heading(oldPlan?'修改并预览剩余计划':'为大任务制定个性计划')+`<form id="planForm"><div class="dialog-body"><div class="notice">这是通用计划器，数量、单位和阶段都由你设置。排程在本地按约束计算，不需要额外调用AI，不代表课程平台实时进度。</div>${s&&!oldPlan?`<div class="notice warn">原文建议：${s.completed}/${s.total}${e(s.unit)}；证据：${e(s.evidence)}。请核实或修改，不会自动保存进度。</div>`:''}${!task.dateConfirmed||!(task.dueAt||task.dueDate)?'<div class="notice warn">任务截止信息尚未核实。你可以填写自己的计划目标日期，但它不会被写成确定的截止时间，也不会启用截止推送。</div>':''}<div class="form-grid"><label class="field"><span>拆分方式</span><select name="mode" ${oldPlan?'disabled':''}><option value="quantity" ${mode==='quantity'?'selected':''}>数量型（报告/章节/试卷等）</option><option value="stages" ${mode==='stages'?'selected':''}>自定义阶段（每行一项）</option></select></label><label class="field"><span>数量型总数（1～500）</span><input name="total" type="number" min="1" max="500" value="${oldPlan?.items.length||s?.total||''}" placeholder="自己填写，不固定数量"></label><label class="field"><span>子任务单位/称呼</span><input name="unit" maxlength="20" value="${e(oldPlan?.unit||s?.unit||'项')}" placeholder="如章、份报告、阶段"></label><label class="field"><span>当前已完成数量（首次建立）</span><input name="completed" type="number" min="0" max="500" value="${oldPlan?oldPlan.items.filter(x=>x.done).length:s?.completed||0}" ${oldPlan?'disabled':''}></label><label class="field full"><span>阶段名称（阶段型必填，每行一个，保存前还可逐项编辑）</span><textarea name="stageNames" rows="4" placeholder="自行填写阶段名称，不限定任务类型">${e(oldPlan?.mode==='stages'?oldPlan.items.map(x=>x.title).join('\n'):'')}</textarea></label></div><label class="check-label"><input name="snapshotConfirmed" type="checkbox">我已核实填写的已完成数量；数量快照不代表具体章节对应关系</label><h3 class="section-title">你的时间与节奏</h3>${formRules(r)}<p class="small muted">细水长流：均匀分布；集中推进：尽量集中在最早的可用日期；提前完成：优先使用前65%的可用日，容量不足时扩大至允许范围。自定义：遵守你选择的工作日和上限，再逐项DIY。上限只针对当前大任务，不是假装已统筹所有任务。</p><label class="check-label"><input name="savePreferences" type="checkbox" checked>保存为我的默认习惯（其他大任务不会被自动重排）</label><div class="actions">${btn('生成/重排并预览','preview','','primary')}${oldPlan?btn('返回现有计划','overview'):''}</div><p id="planError" class="error" role="alert"></p><section id="planPreview"></section></div><div class="dialog-foot">${btn('取消','close')}<button type="button" class="button primary" data-plan-action="save" disabled>确认保存此计划</button></div></form>`;
   dialog().scrollTop=0;
+  if(advisoryGuidance)budgetField(dialog().querySelector('#planForm'),advisoryGuidance);
   dialog().querySelector('#planForm').onsubmit=ev=>{ev.preventDefault();preview();};
   dialog().querySelector('#planForm').addEventListener('input',ev=>{if(ev.target.closest('#planPreview')||ev.target.name==='savePreferences')return;draft=null;dialog().querySelector('[data-plan-action="save"]').disabled=true;dialog().querySelector('#planPreview').innerHTML='<p class="notice warn">设置已改变，请重新生成预览。</p>';});
  }
@@ -38,9 +41,9 @@ window.DHPlannerUI=(()=>{
    const form=dialog().querySelector('#planForm');if(!form.reportValidity())return;
    const f=new FormData(form),mode=oldPlan?.mode||f.get('mode'),unit=String(f.get('unit')||'项').trim(),names=String(f.get('stageNames')||'').split('\n').map(x=>x.trim()).filter(Boolean);
    if(mode==='stages'&&!names.length)throw new Error('请填写自定义阶段名称，每行一个。');
-   const items=P.makeItems({total:Number(f.get('total')),unit,stageNames:mode==='stages'?names:[],completed:oldPlan?0:Number(f.get('completed')),snapshotConfirmed:f.has('snapshotConfirmed'),existing:oldPlan});
-   const result=P.generate({task:getTask(),items,rules:readRules(form),mode,unit,existing:oldPlan});draft=result.plan;
-   renderPreview(result.errors);dialog().querySelector('#planPreview').scrollIntoView({block:'start'});
+   const items=P.makeItems({total:Number(f.get('total')),unit,stageNames:mode==='stages'?names:[],completed:oldPlan?0:Number(f.get('completed')),snapshotConfirmed:f.has('snapshotConfirmed'),existing:oldPlan||adviceTemplate});
+   const result=P.generate({task:getTask(),items,rules:readRules(form),mode,unit,existing:oldPlan});draft=result.plan;if(advisoryGuidance){draft.guidance=structuredClone(advisoryGuidance);draft.guidance.dailyMinutes=Number(f.get('advisorDailyMinutes'))||advisoryGuidance.dailyMinutes;draft.guidance.estimatedMinutes=items.reduce((n,x)=>n+(x.minutes||advisoryGuidance.focusMinutes),0);}
+   renderPreview([...new Set([...result.errors,...P.validate(draft,getTask())])]);dialog().querySelector('#planPreview').scrollIntoView({block:'start'});
   }catch(error){draft=null;showError(error.message);dialog().querySelector('[data-plan-action="save"]').disabled=true;}
  }
  function renderPreview(initialErrors=null){
@@ -53,6 +56,8 @@ window.DHPlannerUI=(()=>{
   const start=draft.rules.startDate,end=P.cutoff(draft),days=[];if(start&&end)for(let d=start;d<=end&&days.length<735;d=P.add(d,1))days.push(d);
   root.innerHTML=`<h3 class="section-title">计划预览 · 未保存</h3><p class="small muted">可编辑子任务名称、日期；修改日期自动锁定，重新排程时保留固定安排。电脑可拖动子任务到日期格；手机直接修改日期。不会自动勾选完成。</p><div class="plan-week-summary">${P.weeks(draft).map(w=>`<div><strong>${w.start}～${w.end}</strong><span>安排${w.items.length}项 · 已完成${w.done}项</span></div>`).join('')}</div>${oldPlan?`<details class="plan-differences" open><summary>保存前后对比：${changes.length}项日程变化，${removed.length}项未完成内容移出范围</summary>${changes.map(x=>`<p>${e(x.title)}：${e(oldPlan.items.find(y=>y.id===x.id)?.date||'未安排')} → ${e(x.date||'待安排')}</p>`).join('')}${removed.map(x=>`<p>${e(x.title)}：移出当前计划（已完成记录不会被移除）</p>`).join('')}</details>`:''}<details><summary>拖动排期日期格（工作日与休息日均明确显示）</summary><div class="plan-drop-grid">${days.map(d=>`<div class="plan-drop-day ${draft.rules.excludedWeekdays.includes(P.weekday(d))||draft.rules.excludedDates.includes(d)?'rest-day':''}" data-plan-date="${d}"><strong>${d.slice(5)} 周${'日一二三四五六'[P.weekday(d)]}</strong><small>${draft.rules.excludedWeekdays.includes(P.weekday(d))||draft.rules.excludedDates.includes(d)?'休息':draft.items.filter(x=>x.date===d).length+'项'}</small></div>`).join('')}</div></details><div class="plan-preview-items">${draft.items.map(x=>`<div class="plan-preview-row" data-plan-item="${e(x.id)}" draggable="${!x.done}"><span class="muted" title="拖动到日期格">${x.done?'✓':'⠿'}</span><label class="field"><span>子任务名称${x.done?'（已完成，重排保留）':''}</span><input data-item-field="title" value="${e(x.title)}" maxlength="200" ${x.done?'disabled':''}></label><label class="field"><span>安排日期</span><input data-item-field="date" type="date" value="${e(x.date)}" ${x.done?'disabled':''}></label><label class="check-label"><input data-item-field="locked" type="checkbox" ${x.locked?'checked':''} ${x.done?'disabled':''}>固定</label></div>`).join('')}</div>`;
   root.querySelector('details:not(.plan-differences)').open=dropOpen;
+  if(draft.guidance)root.insertAdjacentHTML('afterbegin',guidanceHTML(draft.guidance));
+  for(const row of root.querySelectorAll('[data-plan-item]')){const item=draft.items.find(x=>x.id===row.dataset.planItem);if(item?.description||item?.minutes){const note=document.createElement('p');note.className='small muted advisor-step-note';note.textContent=[item.phase,item.minutes?'估计'+item.minutes+'分钟':'时长待核对',item.description].filter(Boolean).join(' · ');row.append(note);}}
  }
  async function save(){
   try{
@@ -77,6 +82,17 @@ window.DHPlannerUI=(()=>{
   if(ctx.page==='dashboard')dashboard(ctx);
   if(ctx.page==='calendar')calendar(ctx);
   if(ctx.page==='settings')preferences(ctx);
+  window.DHAdvisor?.mount(ctx);
+ }
+ function guidanceHTML(g){return `<section class="notice advisor-guidance"><strong>根据问答形成的计划建议</strong><p>${e(g.summary)}</p><p>${e(g.reasoning)}</p><p>AI估计工作量约${g.estimatedMinutes}分钟；每天预算${g.dailyMinutes}分钟，每段最多${g.focusMinutes}分钟，按整段保守预留。实际耗时需核对。</p>${g.assumptions.length?`<details><summary>查看假设与问答依据</summary>${g.assumptions.map(x=>`<p>待核对：${e(x)}</p>`).join('')}${g.answers.map(x=>`<p><strong>${e(x.question)}</strong><br>${e(x.answer||'未补充，需核对假设')}</p>`).join('')}</details>`:''}</section>`;}
+ function budgetField(form,g){let label=form.querySelector('[name="advisorDailyMinutes"]')?.closest('label');if(!label){label=document.createElement('label');label.className='field';label.innerHTML=`<span>明确修改每日可用时间（分钟）</span><input name="advisorDailyMinutes" type="number" min="${g.focusMinutes}" max="720" step="1" value="${g.dailyMinutes}" required>`;form.querySelector('.form-grid').append(label);}}
+ function loadAdvice(id,plan){
+  taskId=id;const task=getTask();if(!task)throw new Error('请先创建项目。');if(task.plan)throw new Error('该任务已有计划，请使用原重排入口，避免覆盖进度。');
+  configure();const f=dialog().querySelector('#planForm');
+  f.elements.mode.value='stages';f.elements.total.value=plan.items.length;f.elements.unit.value=plan.unit;f.elements.stageNames.value=plan.items.map(x=>x.title).join('\n');
+  for(const key of ['startDate','endDate','style','maxPerDay','bufferDays'])f.elements[key].value=plan.rules[key];
+  f.elements.excludedDates.value=plan.rules.excludedDates.join('\n');f.querySelectorAll('[name="workday"]').forEach(x=>x.checked=!plan.rules.excludedWeekdays.includes(Number(x.value)));
+  adviceTemplate=P.clean(plan,{strict:true});advisoryGuidance=adviceTemplate.guidance;if(advisoryGuidance)budgetField(f,advisoryGuidance);draft=structuredClone(adviceTemplate);renderPreview();if(!dialog().open)dialog().showModal();dialog().querySelector('#planPreview').scrollIntoView({block:'start'});
  }
  function dashboard(ctx){const tasks=ctx.getState().tasks.filter(t=>t.plan);if(!tasks.length)return;const el=document.createElement('section');el.className='panel plan-dashboard';el.innerHTML=`<div class="panel-head"><h2>我的大任务 · 各自独立进度</h2><span class="tag">${tasks.length}个计划</span></div>${tasks.map(t=>`<article><strong>${e(t.title)}</strong>${bar(t)}${opening(t)}</article>`).join('')}`;ctx.app.querySelector('.stats')?.after(el);}
  function calendar(ctx){
@@ -114,5 +130,5 @@ window.DHPlannerUI=(()=>{
  document.addEventListener('dragstart',ev=>{const row=ev.target.closest('[data-plan-item]');if(!row||!draft)return;dragged=row.dataset.planItem;ev.dataTransfer.setData('text/plain',dragged);});
  document.addEventListener('dragover',ev=>{if(ev.target.closest('[data-plan-date]'))ev.preventDefault();});
  document.addEventListener('drop',ev=>{const target=ev.target.closest('[data-plan-date]');if(!target||!draft)return;ev.preventDefault();const item=draft.items.find(x=>x.id===(ev.dataTransfer.getData('text/plain')||dragged));if(item&&!item.done){item.date=target.dataset.planDate;item.locked=true;renderPreview();}});
- return {mount,detail,open,bar};
+ return {mount,detail,open,bar,loadAdvice};
 })();

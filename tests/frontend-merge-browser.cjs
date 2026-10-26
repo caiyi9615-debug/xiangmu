@@ -9,7 +9,7 @@ const results=[],pass=name=>{results.push(name);console.log('PASS '+name);};
  try{
   const ctx=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
   const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(base+'/#tasks');await page.getByRole('heading',{name:'任务管理中心'}).waitFor();await page.getByText('服务已连接 · 密钥待配置',{exact:true}).waitFor();assert.match(await page.title(),/2\.1\.1/);pass('V2.1.1健康服务不再被误报为断开');
+  await page.goto(base+'/#tasks');await page.getByRole('heading',{name:'任务管理中心'}).waitFor();await page.getByText('服务已连接 · 密钥待配置',{exact:true}).waitFor();assert.match(await page.title(),/2\.2\.1/);pass('V2.2.1健康服务不再被误报为断开');
   const plan=P.generate({items:P.makeItems({total:3}),rules:{startDate:'2028-11-01',endDate:'2028-11-15'},today:'2026-10-26'}).plan;
   const task=D.cleanTask({title:'合并测试大任务',plan,executionStatus:'unsubmitted'});
   await page.evaluate(s=>CampusStore.write(s),{version:2,tasks:[task],sources:[],history:[],changes:[],theme:'light'});await page.reload();await page.getByRole('heading',{name:'任务管理中心'}).waitFor();
@@ -32,7 +32,7 @@ const results=[],pass=name=>{results.push(name);console.log('PASS '+name);};
    const canvas=document.createElement('canvas');canvas.width=800;canvas.height=4000;const c=canvas.getContext('2d');c.fillStyle='#fff';c.fillRect(0,0,800,4000);c.fillStyle='#111';c.font='20px sans-serif';for(let i=0;i<100;i++)c.fillText('原尺寸长截图测试 '+i,20,30+i*36);
    const blob=await new Promise(r=>canvas.toBlob(r,'image/png'));const transfer=new DataTransfer();transfer.items.add(new File([blob],'原尺寸长截图.png',{type:'image/png'}));const input=document.querySelector('#imageFile');input.files=transfer.files;input.dispatchEvent(new Event('change'));
   });await page.locator('.preview img').waitFor();assert.deepEqual(await page.locator('.preview img').evaluate(img=>[img.naturalWidth,img.naturalHeight]),[800,4000]);pass('长截图保留800×4000原尺寸，不默认压缩至1600像素');
-  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(out,'V2.1.1-前端修复合并-手机.png'),fullPage:false});pass('手机布局无横向溢出');assert.deepEqual(errors,[]);pass('全程无浏览器运行时异常');
+  await page.setViewportSize({width:390,height:844});await page.waitForTimeout(200);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(out,'V2.2.1-前端修复合并-手机.png'),fullPage:false});pass('手机布局无横向溢出');assert.deepEqual(errors,[]);pass('全程无浏览器运行时异常');
   console.log(JSON.stringify({passed:results.length}));
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
