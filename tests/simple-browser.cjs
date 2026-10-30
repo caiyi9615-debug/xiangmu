@@ -9,7 +9,7 @@ const model={summary:'按已有测量数据完成一份实验报告，不重复�
 (async()=>{const browser=await chromium.launch({headless:true,executablePath:process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});try{
 const ctx=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles'}),page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 const state=()=>page.evaluate(()=>CampusStore.read()),nav=async key=>{const link=page.locator(`nav a[href="#${key}"]`);if(!await link.isVisible())await page.locator('#navMore>summary').click();await link.click();};
-await page.goto(base+'/#tasks');await page.getByRole('heading',{name:'我的任务',exact:true}).waitFor();assert.match(await page.title(),/2\.4\.0/);pass('新版身份正确、非空，无错误覆盖层');
+await page.goto(base+'/#tasks');await page.getByRole('heading',{name:'我的任务',exact:true}).waitFor();assert.match(await page.title(),/2\.4\.1/);pass('新版身份正确、非空，无错误覆盖层');
 const one=D.cleanTask(T.resolve({id:'t1',title:'静电场实验报告',course:'大学物理实验',description:'完成实验报告，需要整理数据、图表与结论。',dateText:'11月7日23:00前提交',executionStatus:'unsubmitted',checklist:['实验数据','PDF报告']},'','','2026-10-30'));
 const plan=P.generate({task:{dueDate:'2026-11-15'},items:P.makeItems({total:5,completed:2,snapshotConfirmed:true}),rules:{startDate:'2026-11-02',endDate:'2026-11-15'}}).plan;
 const two=D.cleanTask({id:'t2',title:'实验九：交流等效参数的实测与仿真测试',course:'电路原理A',dueDate:'2026-11-15',deadlineKind:'date',dateConfirmed:true,plan,executionStatus:'unsubmitted'});

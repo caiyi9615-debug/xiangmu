@@ -28,20 +28,25 @@ function validateOutput(value,source='',reference=T.today()) {
     const extracted={...t};
     extracted.notes=Trust.cleanEncodingClaims(t.notes,source);
     extracted.uncertain=t.uncertain.map(x=>Trust.cleanEncodingClaims(x,source)).filter(Boolean);
+    extracted.aiNotes=[];
+    if(extracted.notes!==String(t.notes||'').trim()||extracted.uncertain.length<t.uncertain.length)extracted.aiNotes.push('已忽略模型虚构的编码异常提示');
     extracted.plan=null;
     extracted.planSuggestion=t.workload&&Number.isInteger(t.workload.total)&&t.workload.total>0&&t.workload.total<=500?{total:t.workload.total,unit:typeof t.workload.unit==='string'?t.workload.unit:'项',completed:Number.isInteger(t.workload.completed)&&t.workload.completed>=0&&t.workload.completed<=t.workload.total?t.workload.completed:0,evidence:typeof t.workload.evidence==='string'?t.workload.evidence:'AI提取，需用户核实'}:null;
     // 有原始时间文字时，用其检查模型是否擅自补了年份或23:59。
     {
-      const year=/\d{4}\s*(?:年|[-/.])/.test(raw),clock=/(?:[01]?\d|2[0-3])\s*[:：]\s*[0-5]\d|\d{1,2}\s*(?:点|时)/.test(raw);
-      if(!year||!clock)extracted.dueAt='';
-      if(!year||!clock)extracted.startsAt='';
-      if(!year)extracted.dueDate='';
-      if(!year&&/\d{1,2}月\d{1,2}/.test(raw))extracted.uncertain.push('原文缺少年份，建议年份待确认；原文时刻保留');
+      const candidates=T.dateCandidates(raw,reference),full=candidates.filter(x=>!x.inferred);
+      const matches=(value,clock)=>full.some(x=>x.date===value?.slice(0,10)&&(!clock||x.clock===value.slice(11)));
+      for(const field of ['dueAt','startsAt'])if(extracted[field]&&!matches(extracted[field],true)){
+        extracted[field]='';extracted.aiNotes.push(`已移除与原文不一致的${field==='dueAt'?'截止':'开始'}时刻，按原文重新解析`);
+      }
+      if(extracted.dueDate&&!matches(extracted.dueDate,false))extracted.dueDate='';
+      if(candidates.some(x=>x.inferred)&&!full.length)extracted.uncertain.push('原文缺少年份，建议年份待确认；原文时刻保留');
+      if(new Set(candidates.map(x=>x.date)).size>1&&!extracted.dueAt&&!extracted.dueDate&&!T.partialDate(raw,reference))extracted.uncertain.push('原文有多个日期，截止角色不明确，请选择准确日期');
     }
     if(t.sourcePlatform==='chaoxing_homework')extracted.evidence=[t.evidence,'学习通筛选依据：本行作业图标为蓝色，状态为未提交（AI视觉识别，保存前请核对原图）。'].filter(Boolean).join('\n');
     const type=t.timeEvidence?.type==='activity'||!!t.startsAt&&!t.dueAt&&!t.dueDate?'activity':T.classify(raw,extracted);
-    const task=D.cleanTask(T.resolve({...extracted,executionStatus:T.status(t.statusText||t.executionStatus||t.status),dateText:raw,timeEvidence:{raw,type},dateConfirmed:false},'','用户手动核实的截图拍摄时间',reference));
-    if(!task.dueAt && !task.startsAt && !task.uncertain.length) task.uncertain.push('未提取到完整日期，请人工确认');
+    const task=D.cleanTask(T.resolve({...extracted,executionStatus:T.status(t.statusText||t.executionStatus||t.status),dateText:raw,timeEvidence:{raw,type,sourceSpan:raw},dateConfirmed:false},'','用户手动核实的截图拍摄时间',reference));
+    if(!task.dueAt && !task.dueDate && !task.startsAt && !task.uncertain.length) task.uncertain.push('未提取到完整日期，请人工确认');
     return task;
   });
   if(!tasks.length)throw fail('没有符合条件的待办：学习通仅保留蓝色图标且明确未提交的作业；灰色、已提交、已完成、待批阅及颜色不明的项目不加入。请核对原图，必要时上传更清晰的截图。',422);

@@ -1,6 +1,7 @@
 (function(root){
  'use strict';
  const T=typeof module!=='undefined'&&module.exports?require('./time'):root.DHTime;
+ const F=typeof module!=='undefined'&&module.exports?require('./fidelity'):root.DHFidelity;
  const styles={steady:'细水长流',burst:'集中推进',early:'提前完成',custom:'自定义'};
  const int=(v,min,max,fallback)=>Number.isInteger(Number(v))&&Number(v)>=min&&Number(v)<=max?Number(v):fallback;
  const uid=()=>globalThis.crypto.randomUUID();
@@ -21,10 +22,10 @@
   for(const x of v.items){
    if(!x||typeof x.title!=='string'||!x.title.trim()||(x.date&&!T.dateOnly(x.date)))return invalid();
    const id=typeof x.id==='string'&&x.id.length<=100?x.id:uid();if(ids.has(id))return invalid();ids.add(id);
-   items.push({id,title:x.title.trim().slice(0,200),description:String(x.description||'').slice(0,1200),phase:String(x.phase||'').slice(0,100),minutes:int(x.minutes,0,120,0),date:T.dateOnly(x.date)||'',done:x.done===true,locked:x.locked===true,completedAt:typeof x.completedAt==='string'?x.completedAt:'',snapshot:x.snapshot===true});
+   items.push({id,title:x.title.trim().slice(0,200),description:String(x.description||'').slice(0,1200),phase:String(x.phase||'').slice(0,100),minutes:int(x.minutes,0,120,0),minutesOrigin:['ai','user','default'].includes(x.minutesOrigin)?x.minutesOrigin:'',date:T.dateOnly(x.date)||'',done:x.done===true,locked:x.locked===true,completedAt:typeof x.completedAt==='string'?x.completedAt:'',snapshot:x.snapshot===true});
   }
   const g=v.guidance&&typeof v.guidance==='object'?v.guidance:null;
-  const guidance=g?{summary:String(g.summary||'').slice(0,1500),reasoning:String(g.reasoning||'').slice(0,1500),answers:Array.isArray(g.answers)?g.answers.slice(0,5).map(a=>({question:String(a.question||'').slice(0,300),answer:String(a.answer||'').slice(0,2000)})):[],assumptions:Array.isArray(g.assumptions)?g.assumptions.slice(0,12).map(x=>String(x).slice(0,500)):[],estimatedMinutes:int(g.estimatedMinutes,0,100000,0),dailyMinutes:int(g.dailyMinutes,0,720,0),focusMinutes:int(g.focusMinutes,0,120,0),source:String(g.source||'AI建议，须核对').slice(0,200)}:null;
+  const guidance=g?{summary:String(g.summary||'').slice(0,1500),reasoning:String(g.reasoning||'').slice(0,1500),answers:Array.isArray(g.answers)?g.answers.slice(0,5).map(a=>({question:String(a.question||'').slice(0,300),answer:String(a.answer||'').slice(0,2000)})):[],assumptions:Array.isArray(g.assumptions)?g.assumptions.slice(0,12).map(x=>String(x).slice(0,500)):[],estimatedMinutes:int(g.estimatedMinutes,0,100000,0),dailyMinutes:int(g.dailyMinutes,0,720,0),focusMinutes:int(g.focusMinutes,0,120,0),source:String(g.source||'AI建议，须核对').slice(0,200),unitReview:g.unitReview?{issues:Array.isArray(g.unitReview.issues)?g.unitReview.issues.slice(0,20).map(x=>String(x).slice(0,500)):[],confirmed:g.unitReview.confirmed===true}:null}:null;
   return {version:1,mode:v.mode==='stages'?'stages':'quantity',unit:String(v.unit||'项').trim().slice(0,20)||'项',items,rules:rules(v.rules),guidance,
    deadlineSnapshot:String(v.deadlineSnapshot||'').slice(0,30),confirmed:v.confirmed===true,
    createdAt:typeof v.createdAt==='string'?v.createdAt:new Date().toISOString(),updatedAt:typeof v.updatedAt==='string'?v.updatedAt:new Date().toISOString()};
@@ -56,7 +57,25 @@
   return Array.from({length:n},(_,i)=>({id:uid(),title:names[i]||`第${i+1}${unit}`,date:'',done:i<completed,locked:false,completedAt:'',snapshot:i<completed}));
  }
  function cutoff(plan){return plan.rules.endDate?add(plan.rules.endDate,-plan.rules.bufferDays):'';}
+ function capacityAdvice(plan,today=T.today()){
+  const r=plan.rules,end=cutoff(plan),start=r.startDate>today?r.startDate:today,dates=[];
+  if(!T.dateOnly(start)||!T.dateOnly(end)||start>end)return null;
+  for(let date=start;date<=end;date=add(date,1))if(allowed(date,r))dates.push(date);
+  if(!dates.length)return null;
+  const occupied=new Map();for(const x of plan.items)if((x.done||x.locked)&&dates.includes(x.date))occupied.set(x.date,(occupied.get(x.date)||0)+1);
+  const pending=plan.items.filter(x=>!x.done&&!x.locked).length,capacity=dates.reduce((n,d)=>n+Math.max(0,r.maxPerDay-(occupied.get(d)||0)),0);
+  if(pending<=capacity)return null;
+  let requiredPerDay=r.maxPerDay;while(requiredPerDay<=100&&dates.reduce((n,d)=>n+Math.max(0,requiredPerDay-(occupied.get(d)||0)),0)<pending)requiredPerDay++;
+  if(requiredPerDay>100)return null;
+  const focus=plan.guidance?.focusMinutes||30;
+  return {days:dates.length,capacity,remaining:pending-capacity,requiredPerDay,requiredDailyMinutes:requiredPerDay*focus,currentDailyMinutes:plan.guidance?.dailyMinutes||0};
+ }
  function allowed(date,r){return !r.excludedWeekdays.includes(weekday(date))&&!r.excludedDates.includes(date);}
+ function reviewUnits(plan,task={}){
+  if(!plan.guidance)return {issues:[],confirmed:true};
+  const issues=F.unitIssues([task.title,task.description,...(plan.guidance.answers||[]).map(a=>a.answer)].filter(Boolean).join('\n'),plan.items),review=plan.guidance.unitReview;
+  return {issues,confirmed:!issues.length||review?.confirmed===true&&JSON.stringify(review.issues)===JSON.stringify(issues)};
+ }
  function validate(plan,task={},today=T.today()){
   const errors=[],r=plan.rules,end=cutoff(plan),dates=new Map(),deadline=(task.dueAt||task.dueDate||'').slice(0,10);
   if(!r.startDate||!r.endDate)errors.push('请填写完整的计划开始日期和目标日期，不猜测缺失年份。');
@@ -73,6 +92,7 @@
   }
   for(const [date,n] of dates)if(n>r.maxPerDay&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 安排${n}项，超过每天${r.maxPerDay}项上限。`);
   if(plan.guidance?.dailyMinutes&&plan.guidance?.focusMinutes)for(const [date,n] of dates)if(plan.items.filter(x=>x.date===date).reduce((sum,x)=>sum+Math.max(x.minutes||plan.guidance.focusMinutes,plan.guidance.focusMinutes),0)>plan.guidance.dailyMinutes&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 的分段预留超过已确认的每日${plan.guidance.dailyMinutes}分钟预算，请减少当天安排或明确修改时间预算。`);
+  if(!reviewUnits(plan,task).confirmed)errors.push('计划数量与单位尚未核对，请修改或重新确认。');
   return [...new Set(errors)];
  }
  function generate({task={},items,rules:input,mode='quantity',unit='项',existing=null,today=T.today()}){
@@ -111,6 +131,6 @@
   const groups=new Map();for(const item of plan.items){if(!item.date)continue;const monday=add(item.date,-((weekday(item.date)+6)%7));if(!groups.has(monday))groups.set(monday,[]);groups.get(monday).push(item);}
   return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([start,items])=>({start,end:add(start,6),items,done:items.filter(x=>x.done).length}));
  }
- const api={styles,rules,clean,suggestion,makeItems,generate,validate,summary,weeks,add,weekday,cutoff};
+ const api={styles,rules,clean,suggestion,makeItems,generate,validate,summary,weeks,add,weekday,cutoff,capacityAdvice,reviewUnits};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.DHPlanner=api;
 })(globalThis);

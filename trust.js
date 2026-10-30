@@ -19,4 +19,4 @@ function validateQuantities(source,value){
   if(!/\d+\s*(?:个|支|部)\s*(?:演示)?视频/.test(source)&&new Set([...output.matchAll(/视频\s*([123一二三])/g)].map(m=>m[1])).size>1)throw new Error('AI可能将一支视频拆成了多个视频交付物，结果未采用，请重新生成。');
  }
 }
-module.exports={badText,validateText,cleanEncodingClaims,numericRule,validateQuantities};
+module.exports={badText,validateText,cleanEncodingClaims,numericRule,validateQuantities,unitIssues:require('./public/fidelity').unitIssues};

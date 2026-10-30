@@ -28,6 +28,8 @@ window.DHSimple=(()=>{
   const evidence=body.querySelector('.time-evidence');if(evidence){const details=document.createElement('details');details.className='fold-panel';details.innerHTML='<summary>时间依据与原文</summary>';evidence.before(details);details.append(evidence);}
   // Evidence and history remain available without filling the first viewport.
   for(const title of [...body.querySelectorAll('h3.section-title')])if(['来源与原文证据','历史修改记录'].includes(title.textContent)){const details=document.createElement('details');details.className='fold-panel';details.innerHTML=`<summary>${e(title.textContent)}</summary>`;title.before(details);let next=title.nextSibling;title.remove();while(next&&!(next.nodeType===1&&next.matches('h3.section-title'))){const item=next;next=next.nextSibling;details.append(item);}}
+  if(task.aiNotes?.length){const log=document.createElement('details');log.className='fold-panel processing-record';log.innerHTML='<summary>识别处理记录 · '+task.aiNotes.length+'条</summary><div>'+task.aiNotes.map(n=>'<p>'+e(n)+'</p>').join('')+'</div>';body.append(log);}
+  if(task.plan?.guidance?.unitReview?.issues?.length){const log=document.createElement('details');log.className='fold-panel';log.innerHTML='<summary>计划单位核对记录</summary><div><p>'+e(task.plan.guidance.unitReview.confirmed?'用户已核对后保留':'尚未核对')+'</p>'+task.plan.guidance.unitReview.issues.map(n=>'<p>'+e(n)+'</p>').join('')+'</div>';body.append(log);}
   const timing=body.querySelector('.form-grid');if(timing){const review=btn('核实时间','review-saved',task.id,'text compact');timing.insertAdjacentHTML('beforeend',review);}
  }
  function tidyForm(dialog){

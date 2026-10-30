@@ -39,7 +39,7 @@ function draft(value,project,limits,responseAnswers){
  if(!value||!Array.isArray(value.steps)||!value.steps.length||value.steps.length>200)throw fail('AI未生成有效的执行步骤（最多200段），请缩小项目范围后重试。');
  const steps=value.steps.map((x,i)=>{
   if(!x||!str(x.title)||!str(x.description)||!Number.isInteger(x.minutes)||x.minutes<1||x.minutes>limits.focusMinutes)throw fail('AI步骤缺少执行说明或时长无效；每步不得超过你选择的单段时长，请重试。');
-  return {id:globalThis.crypto.randomUUID(),title:str(x.title,200),description:str(x.description,1200),phase:str(x.phase,100),minutes:x.minutes,date:'',done:false,locked:false,completedAt:'',snapshot:false};
+  return {id:globalThis.crypto.randomUUID(),title:str(x.title,200),description:str(x.description,1200),phase:str(x.phase,100),minutes:x.minutes,minutesOrigin:'ai',date:'',done:false,locked:false,completedAt:'',snapshot:false};
  });
  const refined=value.refinedRules&&typeof value.refinedRules==='object'?value.refinedRules:{};
  const extraDays=Array.isArray(refined.excludedWeekdays)?refined.excludedWeekdays.filter(x=>Number.isInteger(x)&&x>=0&&x<=6):[];
@@ -49,7 +49,8 @@ function draft(value,project,limits,responseAnswers){
  const assumptions=Array.isArray(value.assumptions)?value.assumptions.filter(x=>typeof x==='string').slice(0,12).map(x=>x.slice(0,500)):[];
  const estimatedMinutes=steps.reduce((sum,x)=>sum+x.minutes,0);
  result.plan.guidance={summary:str(value.summary,1500),reasoning:str(value.scheduleExplanation,1500),answers:responseAnswers,assumptions,estimatedMinutes,dailyMinutes:limits.dailyMinutes,focusMinutes:limits.focusMinutes,source:'DeepSeek问答建议，工作量为估计，须用户核对'};
- return {...result,estimatedMinutes,summary:result.plan.guidance.summary,assumptions,rules:result.plan.rules};
+ const unitIssues=Trust.unitIssues([project.title,project.description,...responseAnswers.map(a=>a.answer)].join('\n'),steps);
+ return {...result,unitIssues,estimatedMinutes,summary:result.plan.guidance.summary,assumptions,rules:result.plan.rules};
 }
 async function askJSON(prompt,data,maxTokens,request){
  const key=(process.env.DEEPSEEK_API_KEY||'').trim(),model=(process.env.DEEPSEEK_MODEL||'deepseek-flash').trim();

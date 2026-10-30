@@ -25,7 +25,7 @@
     const rawTime=value.timeEvidence&&typeof value.timeEvidence==='object'?value.timeEvidence:{};
     const timeEvidence={raw:String(rawTime.raw??value.dateText??'').slice(0,1000),type:Object.hasOwn(T.types,rawTime.type)?rawTime.type:T.classify(String(value.dateText||''),value),timezone:T.ZONE,
       baseAt:T.valid(rawTime.baseAt)||'',baseSource:String(rawTime.baseSource||'未提供可靠截图时间').slice(0,200),method:String(rawTime.method||'原文提取，待人工核实').slice(0,1000),
-      inferred:rawTime.inferred===true,yearInferred:rawTime.yearInferred===true,yearReference:T.dateOnly(rawTime.yearReference)||'',precision:String(rawTime.precision||'未知').slice(0,200),confirmed:rawTime.confirmed===true||value.dateConfirmed===true,
+      inferred:rawTime.inferred===true,yearInferred:rawTime.yearInferred===true,yearReference:T.dateOnly(rawTime.yearReference)||'',sourceSpan:String(rawTime.sourceSpan||value.dateText||'').slice(0,1000),precision:String(rawTime.precision||'未知').slice(0,200),confirmed:rawTime.confirmed===true||value.dateConfirmed===true,
       verification:['pending','estimated','confirmed','date_only','none'].includes(rawTime.verification)?rawTime.verification:(value.dateConfirmed?'confirmed':'pending')};
     // 只在有实际日期且经过用户确认时修正显示，不把无日期事项冒充精确时间。
     if(timeEvidence.confirmed&&(deadlineKind==='datetime'&&dueAt||deadlineKind==='date'&&dueDate)){
@@ -55,7 +55,7 @@
       status: executionStatus==='completed'?'done':'todo', checklist,
       plan:P.clean(value.plan,{strict}),planSuggestion:P.suggestion({planSuggestion:value.planSuggestion,title,description:value.description,evidence:value.evidence}),
       notes: String(value.notes || '').slice(0, 2000), evidence: String(value.evidence || '').slice(0, 2000),
-      uncertain, dateConfirmed: timeEvidence.confirmed,
+      uncertain,aiNotes:Array.isArray(value.aiNotes)?value.aiNotes.map(x=>String(x).slice(0,500)).slice(0,15):[], dateConfirmed: timeEvidence.confirmed,
       estimatedHours: Math.max(0, Math.min(1000, Number(value.estimatedHours) || 0)),
       availableHours: value.availableHours === '' || value.availableHours == null ? null : Math.max(0, Math.min(1000, Number(value.availableHours) || 0)),
       sourceId: typeof value.sourceId === 'string' ? value.sourceId : '',
@@ -181,7 +181,20 @@
     for(const h of state.history) {h.before=cleanTask(h.before,{strict:true});h.after=cleanTask(h.after,{strict:true});}
     return state;
   }
-  const api={categories,uid,dayKey,validDate,cleanTask,progress,statistics,risks,differences,candidates,applyChange,ics,validateBackup};
+  function radarGroups(tasks,today=T.today()){
+    const groups=[[],[],[],[]],nearEnd=P.add(today,3);
+    for(const task of tasks.filter(T.actionable)){
+      const date=(task.dueAt||task.dueDate||'').slice(0,10),near=!!date&&date<=nearEnd,missing=task.checklist.filter(x=>!x.done).length;
+      groups[(near?0:2)+(missing>=2?0:1)].push(task);
+    }
+    return groups;
+  }
+  function deadlineHeatmap(tasks,today=T.today()){
+    const end=T.dateOnly(today)||T.today(),counts=new Map();
+    for(const task of tasks){const date=(task.dueAt||task.dueDate||'').slice(0,10);if(!date)continue;const c=counts.get(date)||{count:0,unverified:0};c.count++;if(!task.dateConfirmed)c.unverified++;counts.set(date,c);}
+    return Array.from({length:126},(_,i)=>{const date=P.add(end,i-125);return {date,...(counts.get(date)||{count:0,unverified:0})};});
+  }
+  const api={categories,uid,dayKey,validDate,cleanTask,progress,statistics,risks,differences,candidates,applyChange,ics,validateBackup,radarGroups,deadlineHeatmap};
   if (typeof module!=='undefined' && module.exports) module.exports=api;
   else root.DH=api;
 })(globalThis);

@@ -1,10 +1,10 @@
 'use strict';
 // Cache the public shell only. Never cache AI responses, settings, or user images.
-const SHELL_CACHE='deadline-hunter-shell-v2.4.0';
-const SHELL=['/index.html','/styles.css','/planner.css','/capture.css','/experience.css','/simple.css','/simple-ui.js','/app.js','/time.js','/domain.js','/store.js','/review.js','/planner.js','/planner-ui.js','/advisor-ui.js','/push-client.js','/experience.js','/manifest.webmanifest','/push-icon-192.png','/push-icon-512.png'];
+const SHELL_CACHE='deadline-hunter-shell-v2.4.1';
+const SHELL=['/index.html','/styles.css','/planner.css','/capture.css','/experience.css','/simple.css','/simple-ui.js','/app.js','/time.js','/fidelity.js','/domain.js','/store.js','/review.js','/planner.js','/planner-ui.js','/advisor-ui.js','/push-client.js','/experience.js','/manifest.webmanifest','/push-icon-192.png','/push-icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(SHELL_CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const key of await caches.keys())if(key.startsWith('deadline-hunter-shell-')&&key!==SHELL_CACHE)await caches.delete(key);await self.clients.claim();})()));
-self.addEventListener('fetch',e=>{const url=new URL(e.request.url);if(url.origin!==self.location.origin||e.request.method!=='GET'||url.pathname.startsWith('/api/'))return;if(e.request.mode!=='navigate'&&!SHELL.includes(url.pathname))return;e.respondWith((async()=>{try{const response=await fetch(e.request);if(response.ok){const cache=await caches.open(SHELL_CACHE);await cache.put(e.request.mode==='navigate'?'/index.html':url.pathname,response.clone());}return response;}catch{return await caches.match(e.request.mode==='navigate'?'/index.html':url.pathname)||new Response('离线资源尚未缓存，请联网打开一次。',{status:503});}})());});
+self.addEventListener('activate',e=>e.waitUntil((async()=>{for(const key of await caches.keys())if((key.startsWith('deadline-hunter-shell-')||key.startsWith('dh-v3-shell-'))&&key!==SHELL_CACHE)await caches.delete(key);await self.clients.claim();})()));
+self.addEventListener('fetch',e=>{const url=new URL(e.request.url);if(url.origin!==self.location.origin||e.request.method!=='GET'||url.pathname.startsWith('/api/'))return;if(e.request.mode!=='navigate'&&!SHELL.includes(url.pathname))return;e.respondWith((async()=>{const cache=await caches.open(SHELL_CACHE);try{const response=await fetch(e.request);if(response.ok)await cache.put(e.request.mode==='navigate'?'/index.html':url.pathname,response.clone());return response;}catch{return await cache.match(e.request.mode==='navigate'?'/index.html':url.pathname)||new Response('离线资源尚未缓存，请联网打开一次。',{status:503});}})());});
 async function localTaskAllowed(message){
  if(!message.taskId)return true;
  return new Promise(resolve=>{
