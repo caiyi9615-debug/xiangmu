@@ -8,6 +8,11 @@
  const dayMs=s=>Date.parse(s+'T00:00:00Z');
  const add=(s,n)=>new Date(dayMs(s)+n*86400000).toISOString().slice(0,10);
  const weekday=s=>new Date(dayMs(s)).getUTCDay();
+ function advisorDefaults(task={},state={},today=T.today()){
+  const pref=state.advisorPreferences||{},r=rules(state.plannerPreferences||{}),dailyMinutes=int(pref.dailyMinutes,15,720,45);
+  return {...r,startDate:today,endDate:(task.dueAt||task.dueDate||'').slice(0,10),dailyMinutes,
+   focusMinutes:Math.min(dailyMinutes,int(pref.focusMinutes,15,120,30)),bufferDays:state.plannerPreferences?r.bufferDays:0};
+ }
  function rules(v={}){
   return {startDate:T.dateOnly(v.startDate)||'',endDate:T.dateOnly(v.endDate)||'',style:Object.hasOwn(styles,v.style)?v.style:'steady',
    maxPerDay:int(v.maxPerDay,1,100,1),bufferDays:int(v.bufferDays,0,90,1),
@@ -131,6 +136,6 @@
   const groups=new Map();for(const item of plan.items){if(!item.date)continue;const monday=add(item.date,-((weekday(item.date)+6)%7));if(!groups.has(monday))groups.set(monday,[]);groups.get(monday).push(item);}
   return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([start,items])=>({start,end:add(start,6),items,done:items.filter(x=>x.done).length}));
  }
- const api={styles,rules,clean,suggestion,makeItems,generate,validate,summary,weeks,add,weekday,cutoff,capacityAdvice,reviewUnits};
+ const api={styles,rules,advisorDefaults,clean,suggestion,makeItems,generate,validate,summary,weeks,add,weekday,cutoff,capacityAdvice,reviewUnits};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.DHPlanner=api;
 })(globalThis);

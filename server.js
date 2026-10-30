@@ -87,7 +87,7 @@ function createServer(){
    catch(error){if(!res.destroyed)json(res,error.status||500,{ok:false,error:error.publicMessage||'AI规划失败，本地任务未改变。'},headers);}return;
   }
   if(req.url==='/api/health'&&req.method==='GET'){
-   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.4.1',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
+   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.4.2',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
   }
   if(['/api/analyze','/api/test-connection'].includes(req.url)&&req.method==='POST'){
    try{
@@ -120,7 +120,7 @@ if(require.main===module){
  const host=process.env.HOST||(process.env.RENDER==='true'?'0.0.0.0':'127.0.0.1');
  server.listen(port,host,()=>{
   const url=`http://127.0.0.1:${port}/`;
-  console.log(`Deadline Hunter V2.4.1 · 路边队 · 简洁AI安排版\n监听：${host}:${port}\n本机访问：${url}\n按Ctrl+C停止；云端请使用Render提供的HTTPS网址。`);
+  console.log(`Deadline Hunter V2.4.2 · 路边队 · 简洁AI安排版\n监听：${host}:${port}\n本机访问：${url}\n按Ctrl+C停止；云端请使用Render提供的HTTPS网址。`);
   if(process.platform==='win32'&&process.env.OPEN_BROWSER==='1')spawn('cmd.exe',['/d','/s','/c',`start "" "${url}"`],{detached:true,stdio:'ignore',windowsHide:true}).unref();
  });
 }

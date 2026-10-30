@@ -44,7 +44,7 @@ window.DHSimple=(()=>{
   for(const label of list.querySelectorAll('.plan-execution-item')){const notes=label.querySelectorAll('small');if(notes.length>1){const wrapper=document.createElement('div');label.before(wrapper);wrapper.append(label);const details=document.createElement('details');details.className='execution-step-info';details.innerHTML='<summary>步骤说明</summary>';details.append(notes[notes.length-1]);wrapper.append(details);}}
  }
  function guide(){
-  const d=document.querySelector('#guideDialog');d.innerHTML='<div class="dialog-head"><h2>从哪里开始？</h2><button class="review-close" data-guide="close" aria-label="关闭指引">×</button></div><div class="dialog-body"><p>已有通知：先识别，再确认加入任务。</p><p>时间不清楚：在「我的任务」点击「核实时间」，随时打开核实弹窗。</p><p>想完成一件事：点击「AI安排任务」，回答几个问题，确认拆解后的日程。</p><div class="actions"><button class="button" data-guide="tasks">查看我的任务</button><button class="button primary" data-guide="plan">AI安排任务</button></div></div>';
+  const d=document.querySelector('#guideDialog');d.innerHTML='<div class="dialog-head"><h2>从哪里开始？</h2><button class="review-close" data-guide="close" aria-label="关闭指引">×</button></div><div class="dialog-body"><p>已有通知：先识别，再确认加入任务。</p><p>时间不清楚：在「我的任务」点击「核实时间」，随时打开核实弹窗。</p><p>想完成一件事：点击「AI安排任务」，先生成可修改的草案；只有缺少关键事实才补问。</p><div class="actions"><button class="button" data-guide="tasks">查看我的任务</button><button class="button primary" data-guide="plan">AI安排任务</button></div></div>';
   for(const button of d.querySelectorAll('[data-guide]'))button.onclick=()=>{d.close();if(button.dataset.guide==='tasks')location.hash='tasks';if(button.dataset.guide==='plan')window.DHAdvisor.open();};d.showModal();
  }
  function tidy(page,app){

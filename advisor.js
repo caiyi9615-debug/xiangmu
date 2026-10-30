@@ -16,10 +16,10 @@ function interview(value){
  return {summary:str(value.summary,1000),questions};
 }
 function answers(body){
- if(!Array.isArray(body.answers)||body.answers.length<1||body.answers.length>5)throw fail('请先回答项目问题。',400);
+ if(body.answers===undefined)return [];
+ if(!Array.isArray(body.answers)||body.answers.length>5)throw fail('补充信息格式无效，最多五项。',400);
  const values=body.answers.map(a=>({question:str(a?.question,300),answer:str(a?.answer,2000)}));
- if(!values.some(x=>x.answer))throw fail('请至少补充一项回答；不确定的部分可填“请给建议”。',400);
- return values;
+ return values.filter(x=>x.answer);
 }
 function constraints(value,project){
  if(!value||typeof value!=='object')throw fail('请填写可用时间和目标日期。',400);
@@ -78,6 +78,13 @@ async function advise(body,request=fetch){
  if(body.stage==='questions'){const result=interview(await askJSON(QUESTION_PROMPT,{project},1800,request));try{Trust.validateQuantities(JSON.stringify(project),result);}catch(e){throw fail(e.message);}return result;}
  if(body.stage!=='draft')throw fail('规划阶段无效。',400);
  const responseAnswers=answers(body),limits=constraints(body.constraints,project);
- return draft(await askJSON(DRAFT_PROMPT,{project,answers:responseAnswers,constraints:limits,focusMinutes:limits.focusMinutes},6000,request),project,limits,responseAnswers);
+ const value=await askJSON(DRAFT_PROMPT+'\n'+LIGHT_PROMPT+'\n简单校对、导出或单次提交任务通常只需1～2个步骤；可以合并检查与导出，不要重复添加多轮最终检查。focusMinutes是上限，不是每步必须用满的时长，小动作按实际估计5、10或15分钟。若project.dateConfirmed为true，其dueDate/dueAt就是用户已核实的截止，不能反向声称它只是计划日期；仅constraints.endDate不能充当真实截止。',{project,answers:responseAnswers,constraints:limits,focusMinutes:limits.focusMinutes},6000,request);
+ if(value&&Array.isArray(value.questions)&&value.questions.length&&!Array.isArray(value.steps)){
+  if(value.questions.length>2||value.questions.some(q=>!str(q?.question)))throw fail('关键问题返回格式无效，请重试。');
+  try{Trust.validateQuantities(JSON.stringify({project,answers:responseAnswers}),value);}catch(e){throw fail(e.message);}
+  return {needsClarification:true,summary:str(value.summary,1000),questions:value.questions.map((q,i)=>({id:'critical'+i,question:str(q.question,300),why:str(q.why,300)}))};
+ }
+ return draft(value,project,limits,responseAnswers);
 }
+const LIGHT_PROMPT=`默认直接生成可修改的草案，不要求先完成访谈。安排偏好可以采用传入的默认值；客观事实不能编造，尤其考试日期、章节范围、总数量、已完成进度。不得把计划的endDate声称为考试或真实截止日期。缺少准确范围但仍能开展的工作，可先安排确认范围、梳理已有材料等具体动作，不虚构章节或数量，不声称覆盖了未知的全部工作。只有缺失信息会导致方案明显错误、无法给出有用草案时，返回最多2个必要问题：{"summary":"缺少哪项关键事实","questions":[{"question":"关键问题","why":"影响"}]}，此时不要返回steps。不要为了学习偏好、基础或目标成绩重复提问；用户已经回答过的问题不得再问。对于简单任务尽量只保留必要步骤，不为凑数量拆分；估时与未确认假设必须明确标注。`;
 module.exports={advise,context,interview,constraints,draft};
