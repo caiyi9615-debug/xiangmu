@@ -72,7 +72,7 @@
    dates.set(x.date,(dates.get(x.date)||0)+1);
   }
   for(const [date,n] of dates)if(n>r.maxPerDay&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 安排${n}项，超过每天${r.maxPerDay}项上限。`);
-  if(plan.guidance?.dailyMinutes&&plan.guidance?.focusMinutes)for(const [date,n] of dates)if(n*plan.guidance.focusMinutes>plan.guidance.dailyMinutes&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 的分段预留超过已确认的每日${plan.guidance.dailyMinutes}分钟预算，请减少当天安排或明确修改时间预算。`);
+  if(plan.guidance?.dailyMinutes&&plan.guidance?.focusMinutes)for(const [date,n] of dates)if(plan.items.filter(x=>x.date===date).reduce((sum,x)=>sum+Math.max(x.minutes||plan.guidance.focusMinutes,plan.guidance.focusMinutes),0)>plan.guidance.dailyMinutes&&plan.items.some(x=>!x.done&&x.date===date))errors.push(`${date} 的分段预留超过已确认的每日${plan.guidance.dailyMinutes}分钟预算，请减少当天安排或明确修改时间预算。`);
   return [...new Set(errors)];
  }
  function generate({task={},items,rules:input,mode='quantity',unit='项',existing=null,today=T.today()}){

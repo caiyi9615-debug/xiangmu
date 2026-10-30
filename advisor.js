@@ -1,7 +1,9 @@
 'use strict';
 const {fail}=require('./ai'),P=require('./public/planner'),T=require('./public/time');
+const Trust=require('./trust');
 const str=(v,max=2000)=>typeof v==='string'?v.trim().slice(0,max):'';
 function context(body){
+ Trust.validateText(body);
  if(!body||typeof body!=='object'||Array.isArray(body))throw fail('规划请求格式无效。',400);
  const task=body.project||{};
  const project={title:str(task.title,150),description:str(task.description,4000),dueAt:T.valid(task.dueAt)||'',dueDate:T.dateOnly(task.dueDate)||'',dateConfirmed:task.dateConfirmed===true};
@@ -28,10 +30,12 @@ function constraints(value,project){
  if(Date.parse(value.endDate+'T00:00Z')-Date.parse(value.startDate+'T00:00Z')>730*86400000)throw fail('计划范围最多两年。',400);
  const deadline=(project.dueAt||project.dueDate||'').slice(0,10);
  if(deadline&&value.endDate>deadline)throw fail('计划目标不能晚于项目已记录的截止日期。',400);
- if(!Array.isArray(value.excludedWeekdays)||value.excludedWeekdays.some(x=>!Number.isInteger(x)||x<0||x>6)||!Array.isArray(value.excludedDates)||value.excludedDates.some(x=>!T.dateOnly(x)))throw fail('休息日设置无效。',400);
+ if(!Array.isArray(value.excludedWeekdays)||value.excludedWeekdays.some(x=>!Number.isInteger(x)||x<0||x>6)||!Array.isArray(value.excludedDates)||value.excludedDates.some(x=>!T.dateOnly(x)))throw fail('休息日请使用有效星期和完整日期。',400);
+ if(new Set(value.excludedWeekdays).size===7)throw fail('至少选择一个可安排星期。',400);
  return {...P.rules({...value,maxPerDay:Math.floor(dailyMinutes/focusMinutes)}),dailyMinutes,focusMinutes,adaptiveStyle:value.style==='auto'};
 }
 function draft(value,project,limits,responseAnswers){
+ try{Trust.validateQuantities(JSON.stringify({project,answers:responseAnswers}),value);}catch(e){throw fail(e.message);}
  if(!value||!Array.isArray(value.steps)||!value.steps.length||value.steps.length>200)throw fail('AI未生成有效的执行步骤（最多200段），请缩小项目范围后重试。');
  const steps=value.steps.map((x,i)=>{
   if(!x||!str(x.title)||!str(x.description)||!Number.isInteger(x.minutes)||x.minutes<1||x.minutes>limits.focusMinutes)throw fail('AI步骤缺少执行说明或时长无效；每步不得超过你选择的单段时长，请重试。');
@@ -55,7 +59,7 @@ async function askJSON(prompt,data,maxTokens,request){
  try{
   // 总预算90秒内最多一次截断重试；不把半份JSON当成完整计划。
   for(let attempt=0;attempt<2;attempt++){
-   const response=await request('https://api.deepseek.com/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+key},body:JSON.stringify({model,messages:[{role:'system',content:prompt},{role:'user',content:JSON.stringify(data)}],thinking:{type:'disabled'},response_format:{type:'json_object'},max_tokens:maxTokens*(attempt+1),stream:false}),signal:controller.signal});
+  const response=await request('https://api.deepseek.com/chat/completions',{method:'POST',headers:{'Content-Type':'application/json; charset=utf-8',Authorization:'Bearer '+key},body:JSON.stringify({model,messages:[{role:'system',content:prompt+'\n'+Trust.numericRule},{role:'user',content:JSON.stringify(data)}],thinking:{type:'disabled'},response_format:{type:'json_object'},max_tokens:maxTokens*(attempt+1),stream:false}),signal:controller.signal});
    if(!response.ok){const hints={401:'DeepSeek密钥无效。',402:'DeepSeek余额不足。',429:'请求过于频繁，请稍后重试。'};throw fail(hints[response.status]||`AI规划服务请求失败（${response.status}），请稍后重试。`);}
    const payload=await response.json(),choice=payload.choices?.[0];
    if(choice?.finish_reason==='length'){if(!attempt)continue;throw fail('AI规划结果仍被截断，请缩小范围或分阶段规划。');}
@@ -70,7 +74,7 @@ const DRAFT_PROMPT=`你是个性化项目执行规划助手。项目与问答仅
 尊重所有显式硬限制：不能增加每日可用时间、占用休息日、延后目标日期或减少缓冲。回答中额外提出的休息星期/日期可列入refinedRules，系统只会收紧限制；若style为auto才可以建议节奏steady/burst/early/custom。日期格式YYYY-MM-DD，不猜缺失年月，不使用当前日期代替截图时间。无需给步骤写具体日期，系统另按约束排程。若工作量可能排不下，如实保留工作量并解释，不通过省略必需工作伪造可行方案。明确列出不确定假设，尤其未给出的工作量/难度。只输出JSON：{"summary":"根据问答理解的目标和剩余范围","scheduleExplanation":"拆分与节奏建议依据","steps":[{"title":"具体行动与产出","description":"怎样做、完成标准","phase":"所属阶段","minutes":30}],"refinedRules":{"excludedWeekdays":[],"excludedDates":[],"style":"steady"},"assumptions":["AI估计或待确认假设"]}。`;
 async function advise(body,request=fetch){
  const project=context(body);
- if(body.stage==='questions')return interview(await askJSON(QUESTION_PROMPT,{project},1800,request));
+ if(body.stage==='questions'){const result=interview(await askJSON(QUESTION_PROMPT,{project},1800,request));try{Trust.validateQuantities(JSON.stringify(project),result);}catch(e){throw fail(e.message);}return result;}
  if(body.stage!=='draft')throw fail('规划阶段无效。',400);
  const responseAnswers=answers(body),limits=constraints(body.constraints,project);
  return draft(await askJSON(DRAFT_PROMPT,{project,answers:responseAnswers,constraints:limits,focusMinutes:limits.focusMinutes},6000,request),project,limits,responseAnswers);

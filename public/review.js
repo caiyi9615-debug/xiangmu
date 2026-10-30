@@ -1,6 +1,6 @@
 'use strict';
 window.TimeReview={
-  needs(task){return task.deadlineKind!=='none'&&(!task.dateConfirmed||['pending','date'].includes(task.deadlineKind));},
+  needs(task){return task.deadlineKind!=='none'&&(!task.dateConfirmed||task.deadlineKind==='pending');},
   open(tasks,context={}){
     const T=DHTime,D=DH,dialog=document.querySelector('#timeDialog');
     const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -23,7 +23,7 @@ window.TimeReview={
         const t=working[Number(row.dataset.row)],kind=row.querySelector('[name="deadlineKind"]').value;
         const dueAt=T.valid(row.querySelector('[name="dueAt"]').value)||'',dueDate=T.dateOnly(row.querySelector('[name="dueDate"]').value)||'';
         const manualChanged=dueAt!==t.dueAt||dueDate!==t.dueDate;
-        const preview={...t,deadlineKind:(kind==='datetime'&&!dueAt||kind==='date'&&!dueDate)?'pending':kind,dueAt:kind==='datetime'?dueAt:'',dueDate:kind==='date'?dueDate:'',dateConfirmed:row.querySelector('[name="confirmed"]').checked,timeEvidence:{...t.timeEvidence,...(manualChanged?{inferred:false}:{})}};
+        const preview={...t,deadlineKind:(kind==='datetime'&&!dueAt||kind==='date'&&!dueDate)?'pending':kind,dueAt:kind==='datetime'?dueAt:'',dueDate:kind==='date'?dueDate:'',dateConfirmed:row.querySelector('[name="confirmed"]').checked,timeEvidence:{...t.timeEvidence,...(manualChanged?{inferred:false,yearInferred:false,yearReference:''}:{})}};
         row.querySelector('.calculation-preview').textContent=T.label(preview);
         row.querySelector('.review-method').textContent=manualChanged?'用户直接填写/核对截止信息':t.timeEvidence?.method||'待人工核实';
         row.querySelector('.review-status').textContent=T.statuses[row.querySelector('[name="executionStatus"]').value]||'未知';
@@ -41,10 +41,15 @@ window.TimeReview={
           const confirmed=row.querySelector('[name="confirmed"]').checked&&['datetime','date'].includes(t.deadlineKind);
           t.dateConfirmed=confirmed;t.timeEvidence={...t.timeEvidence,timezone:T.ZONE,confirmed,
             verification:t.deadlineKind==='none'?'none':confirmed?(t.deadlineKind==='date'?'date_only':'confirmed'):t.timeEvidence?.inferred&&t.dueAt?'estimated':'pending',
-            ...(manualChanged?{method:'用户直接填写/核对截止信息',inferred:false,precision:t.deadlineKind==='date'?'仅日期':'分钟'}:{})};
+            ...(manualChanged?{method:'用户直接填写/核对截止信息',inferred:false,yearInferred:false,yearReference:'',precision:t.deadlineKind==='date'?'仅日期':'分钟'}:{})};
         }
       }
       rows();
+      const relative=tasks.some(t=>['duration','relative'].includes(T.classify(t.dateText,t)));
+      dialog.querySelector('.base-time').hidden=!relative;
+      dialog.querySelector('.review-explainer').textContent=relative?'相对日期和剩余时长需要完整截图时间；没有时间也能保存为待核实。':'原文月日和时刻已保留；黄色标记的年份只是建议。核对后可一键确认，不需要填写截图时间。';
+      const yearTasks=tasks.filter(t=>t.timeEvidence?.yearInferred&&!t.dateConfirmed);
+      if(yearTasks.length){const bar=document.createElement('div');bar.className='year-review-bar notice warn';bar.innerHTML=`<label class="field"><span>统一确认这批缺失年份</span><input id="reviewYear" type="number" min="1900" max="2200" value="${Number((yearTasks[0].dueAt||yearTasks[0].dueDate).slice(0,4))}"></label><button type="button" class="button" id="confirmYears">确认这${yearTasks.length}项的年份</button>`;dialog.querySelector('.review-list-heading').before(bar);bar.querySelector('button').onclick=()=>{collect();const year=Number(bar.querySelector('input').value);if(!Number.isInteger(year)||year<1900||year>2200){bar.querySelector('input').reportValidity();return;}let invalid=false;for(const t of working.filter(t=>t.timeEvidence?.yearInferred)){const day=String(year)+(t.dueAt||t.dueDate).slice(4,10);if(!T.dateOnly(day)){invalid=true;continue;}if(t.dueAt)t.dueAt=day+t.dueAt.slice(10);else t.dueDate=day;t.dateConfirmed=true;t.timeEvidence={...t.timeEvidence,confirmed:true,verification:t.dueAt?'confirmed':'date_only',method:t.timeEvidence.method+'；用户已确认年份'+year};}rows();if(invalid){let error=bar.querySelector('[role=alert]');if(!error){error=document.createElement('p');error.className='error';error.setAttribute('role','alert');bar.append(error);}error.textContent='所选年份不支持某个日期（例如闰日），请展开单项核对。';}};}
       dialog.querySelector('#timeRows').addEventListener('input',e=>{
         const row=e.target.closest('[data-row]');if(!row)return;
         if(e.target.name==='dueAt'&&e.target.value)row.querySelector('[name="deadlineKind"]').value='datetime';

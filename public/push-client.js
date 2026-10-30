@@ -10,6 +10,7 @@ window.DHPush=(()=>{
  function update(){const panel=document.querySelector('#push-settings');if(panel)paint(panel);}
  async function check(){if(checking)return;checking=true;try{const r=await fetch('/api/push/config',{signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error();cfg=await r.json();message=cfg.configured?(saved()?'此设备已开启；请同步任务并发送测试通知。':'后台变量已配置；请开启此设备的通知并测试。'):'后台尚未配置，关闭网页后的提醒未生效。请先完成免费推送部署说明。';}catch{message='无法连接提醒服务，本地任务不受影响。';}finally{checking=false;update();}}
  function paint(panel){
+  panel.hidden=!cfg?.configured&&!saved();
   const enabled=!!saved(),can=supported();
   panel.innerHTML=`<h2>系统推送 · 免费试用</h2><p>截止前24小时、12小时、3小时、1小时、30分钟提醒。只同步已核实准确截止时间、明确未提交/逾期的非演示任务。</p><div class="notice ${cfg?.configured?'':'warn'}" role="status">${text(message)}</div><p class="small muted">免费定时器每5分钟检查；网络、后台唤醒和系统设置可能延迟或丢失通知，不代替闹钟。服务端接受发送不等于设备已收到。</p>${!can?'<div class="notice warn">当前环境不支持推送。苹果需iOS 16.4以上，将网站添加到主屏幕后从图标打开；安卓和电脑请用支持推送的浏览器，不要在微信内打开。</div>':''}<label class="field"><span>提醒邀请码（首次开启时填写，不是DeepSeek密钥）</span><input id="push-join" type="password" autocomplete="off" maxlength="200" placeholder="由维护者在Render配置"></label><div class="actions"><button type="button" class="button primary" id="push-enable" ${!can||!cfg?.configured?'disabled':''}>${enabled?'重新订阅':'开启此设备通知'}</button><button type="button" class="button" id="push-sync" ${!enabled?'disabled':''}>同步提醒任务</button><button type="button" class="button" id="push-test" ${!enabled?'disabled':''}>发送测试通知</button><button type="button" class="button danger" id="push-disable" ${!enabled?'disabled':''}>关闭并删除云端提醒</button></div><p class="small muted">开启即同意将任务ID、标题、截止时刻和此设备推送订阅上传到Supabase；不上传图片、通知原文、材料或AI密钥。每台设备单独开启，当前不提供跨设备任务同步。连续30天未同步会自动清理云端订阅。</p>`;
   panel.querySelector('#push-enable').onclick=async e=>{
@@ -43,6 +44,6 @@ window.DHPush=(()=>{
   catch(e){message='提醒未同步，云端可能仍使用旧状态：'+e.message+'。本地保存正常，请重新同步。';}
   finally{draining=false;update();}
  }
- function mount(app,state){currentTasks=state.tasks;const panel=document.createElement('section');panel.className='panel';panel.id='push-settings';panel.style.marginBottom='20px';const head=app.querySelector('.page-head');if(head)head.after(panel);else app.prepend(panel);paint(panel);if(!cfg&&!checking)check();}
+ function mount(app,state){currentTasks=state.tasks;const panel=document.createElement('section');panel.className='panel';panel.id='push-settings';panel.style.marginBottom='20px';app.append(panel);paint(panel);if(!cfg&&!checking)check();}
  return {mount,sync};
 })();

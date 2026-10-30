@@ -18,7 +18,7 @@ const screenshotTasks=[
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
  try{
-  const ctx=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles',acceptDownloads:true});
+  const ctx=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles',acceptDownloads:true});
   const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(base,{waitUntil:'networkidle'});await page.locator('nav a[href="#capture"]').click();
   const fixture=process.env.TEST_SCREENSHOT||path.join(__dirname,'sample-deadline.png');await page.locator('#imageFile').setInputFiles(fixture);await page.locator('.preview img').waitFor();pass('真实图片文件选择、预览，保留原上传能力');

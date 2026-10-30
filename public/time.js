@@ -39,12 +39,23 @@
  function classify(raw,t={}){
   if(duration(raw))return 'duration';
   if(/明天|后天|今天|下周|本周|这周|月底/.test(raw))return 'relative';
+  if(t.timeEvidence?.type==='activity')return 'activity';
   if(t.dueAt&&valid(t.dueAt))return 'absolute_datetime';
   if(t.startsAt&&!t.dueAt&&!t.dueDate)return 'activity';
   if(t.dueDate||/\d{1,2}月\d{1,2}[日号]|\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(raw))return 'date_only';
   return raw?'unknown':'none';
  }
- function resolve(task,baseAt='',baseSource='用户手动核实的截图拍摄时间'){
+ function partialDate(raw,reference=today()){
+  const m=raw.match(/(?:(\d{4})\s*[年\-/.]\s*)?(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?/);
+  if(!m)return null;
+  let year=Number(m[1]),inferred=!year;
+  if(inferred){const y=Number(reference.slice(0,4)),month=Number(reference.slice(5,7));year=Number(m[2])>=8?(month>=8?y:y-1):(month>=8?y+1:y);const candidate=Date.parse(`${year}-${pad(m[2])}-${pad(m[3])}T00:00Z`);if(candidate<Date.parse(reference+'T00:00Z')-90*86400000)year++;}
+  const date=dateOnly(`${year}-${pad(m[2])}-${pad(m[3])}`);if(!date)return null;
+  const clock=raw.match(/(?:[日号]|\s|截止|提交|前|至)?\s*([01]?\d|2[0-3])\s*[:：]\s*([0-5]\d)/)||raw.match(/([01]?\d|2[0-3])\s*[点时](?:\s*([0-5]?\d)\s*分?)?/);
+  let hour=clock?Number(clock[1]):null;if(clock&&/下午|晚上/.test(raw)&&hour<12)hour+=12;
+  return {date,clock:clock?`${pad(hour)}:${pad(clock[2]||0)}`:'',inferred,reference};
+ }
+ function resolve(task,baseAt='',baseSource='用户手动核实的截图拍摄时间',reference=today()){
   const raw=String(task.timeEvidence?.raw||task.dateText||'').trim(),type=classify(raw,task),d=duration(raw);
   const evidence={raw,type,timezone:ZONE,baseAt:'',baseSource:'未提供可靠截图时间',method:'未推算',inferred:false,precision:'未知',confirmed:false,verification:'pending',...task.timeEvidence,raw,type,timezone:ZONE};
   let dueAt=valid(task.dueAt)||'',dueDate=dateOnly(task.dueDate)||'',deadlineKind=task.deadlineKind|| (dueAt?'datetime':dueDate?'date':'pending');
@@ -63,21 +74,32 @@
      if(dueDate){deadlineKind='date';evidence.method=`根据已确认截图日期解析“${raw}”；下周按下一自然周（周一开始）`;evidence.precision=/晚上|下午|上午|中午/.test(raw)?'时段不等于具体时刻，仍需核实':'仅日期，具体时刻未知';}
     }
    }else{evidence.method='缺少截图完整日期和时刻，禁止按系统当前时间推算';evidence.verification='pending';}
-  }else if(type==='date_only'){
+  }else if(type==='date_only'||type==='absolute_datetime'){
+   const parsed=partialDate(raw,reference);
+   if(parsed&&(!task.dateConfirmed||!dueAt&&!dueDate)){
+    if(parsed.clock){dueAt=parsed.date+'T'+parsed.clock;dueDate='';deadlineKind='datetime';}else{dueDate=parsed.date;dueAt='';deadlineKind='date';}
+    evidence.yearInferred=parsed.inferred;evidence.yearReference=parsed.inferred?reference:'';
+    evidence.inferred=parsed.inferred;evidence.precision=parsed.clock?'分钟':'仅日期';
+    evidence.method=parsed.inferred?`缺少年份：按当前学年与参考日期${reference}建议年份，超过90天的历史候选顺延一年；原文月日和时刻保留，须确认年份`:'保留通知原文日期与时刻，不补23:59';
+    evidence.verification=evidence.confirmed?(parsed.clock?'confirmed':'date_only'):'pending';
+   }
+   if(!parsed){
    if(!dueDate){const m=raw.match(/(\d{4})[年\-/.](\d{1,2})[月\-/.](\d{1,2})/);if(m)dueDate=dateOnly(`${m[1]}-${pad(m[2])}-${pad(m[3])}`);}
    if(!dueAt)deadlineKind=dueDate?'date':'pending';
-   evidence.method='保留原文日期，不补23:59；缺少年份不补当前年';evidence.precision='仅日期';evidence.verification=evidence.confirmed?'date_only':'pending';
-  }else if(type==='absolute_datetime'){evidence.method=evidence.method==='未推算'?'通知原文完整日期与时刻':evidence.method;evidence.precision='分钟';}
+   evidence.method=dueAt?'通知原文完整日期与时刻':'保留原文日期，不补23:59';evidence.precision=dueAt?'分钟':'仅日期';evidence.verification=evidence.confirmed?'date_only':'pending';
+   }
+  }
   else if(type==='activity'){deadlineKind=task.deadlineKind==='pending'?'pending':'none';evidence.method='活动开始时间与截止时间分开保存';}
   if(task.deadlineKind==='none'){dueAt='';dueDate='';deadlineKind='none';evidence.verification='none';}
   return {...task,dueAt,dueDate,deadlineKind,timeEvidence:evidence,dateConfirmed:evidence.confirmed===true};
  }
  function label(t){
   if(t.deadlineKind==='none')return '无截止时间';
-  if(t.dueAt)return t.dueAt.replace('T',' ')+(t.timeEvidence?.inferred?'（推算值）':'')+(t.dateConfirmed?'':' · 待核实');
-  if(t.dueDate)return t.dueDate+'（仅日期）'+(t.dateConfirmed?'':' · 待核实');
+  const mark=t.timeEvidence?.yearInferred?'（年份推断）':t.timeEvidence?.inferred?'（推算值）':'';
+  if(t.dueAt)return t.dueAt.replace('T',' ')+mark+(t.dateConfirmed?'':' · 待核实');
+  if(t.dueDate)return t.dueDate+'（仅日期）'+mark+(t.dateConfirmed?'':' · 待核实');
   return (t.dateText?`${t.dateText} · `:'')+'待核实';
  }
- const api={ZONE,statuses,types,dateOnly,valid,epoch,local,today,status,actionable,completed,duration,classify,resolve,label};
+ const api={ZONE,statuses,types,dateOnly,valid,epoch,local,today,status,actionable,completed,duration,classify,resolve,label,partialDate};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.DHTime=api;
 })(globalThis);

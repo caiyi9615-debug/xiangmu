@@ -6,6 +6,7 @@ const {spawn}=require('node:child_process');
 const {analyzeNotification,fail}=require('./ai');
 const {createPush}=require('./push');
 const {advise}=require('./advisor');
+const Trust=require('./trust');
 const ROOT=__dirname, PUBLIC=path.join(ROOT,'public');
 const MAX_FILE_BYTES=10*1024*1024,MAX_BODY_BYTES=15*1024*1024;
 const TYPES=['image/png','image/jpeg','image/webp','image/gif'];
@@ -32,7 +33,7 @@ function cors(req){
 function readJson(req){return new Promise((resolve,reject)=>{
  let size=0,oversize=false;const chunks=[];
  req.on('data',chunk=>{size+=chunk.length;if(size>MAX_BODY_BYTES){oversize=true;return;}if(!oversize)chunks.push(chunk);});
- req.on('end',()=>{if(oversize){reject(fail('请求超过15 MB，请选择不超过10 MB的图片。',413));return;}try{resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')||'{}'));}catch{reject(fail('请求不是有效JSON。',400));}});
+ req.on('end',()=>{if(oversize){reject(fail('请求超过15 MB，请选择不超过10 MB的图片。',413));return;}try{const text=new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks));const body=JSON.parse(text||'{}');Trust.validateText(body);resolve(body);}catch(error){reject(error.publicMessage?error:fail('请求必须是有效UTF-8编码的JSON，请重新粘贴文字。',400));}});
  req.on('error',()=>reject(fail('读取上传内容失败。',400)));
 });}
 function validateImage(image){
@@ -62,10 +63,22 @@ function serveStatic(req,res){
 }
 function createServer(){
  const push=createPush();
+ const requests=new Map();let windowStart=Date.now(),total=0,active=0;
+ function admit(req,res,headers){
+  const now=Date.now();if(now-windowStart>=60000){requests.clear();total=0;windowStart=now;}
+  const ip=process.env.RENDER==='true'?String(req.headers['x-forwarded-for']||req.socket.remoteAddress).split(',').at(-1).trim():req.socket.remoteAddress;
+  const count=requests.get(ip)||0,max=Math.max(1,Number(process.env.AI_RATE_LIMIT_PER_MINUTE)||8);
+  if(count>=max||total>=60||active>=3){json(res,429,{error:'AI请求较多，请稍后重试。任务管理和本地计划仍可使用。'},{...headers,'Retry-After':'60'});return false;}
+  requests.set(ip,count+1);total++;active++;res.once('close',()=>active--);return true;
+ }
  const server=http.createServer(async(req,res)=>{
   const headers=cors(req),origin=req.headers.origin;
   if(req.url.startsWith('/api/')&&origin&&!headers['Access-Control-Allow-Origin']){json(res,403,{error:'该网页来源未允许访问API。'});return;}
   if(req.method==='OPTIONS'){res.writeHead(204,headers);res.end();return;}
+  if(['/api/analyze','/api/advisor','/api/test-connection'].includes(req.url)&&req.method==='POST'){
+   if(req.headers['sec-fetch-site']==='cross-site'){json(res,403,{error:'跨站AI请求未允许。'},headers);return;}
+   if(!admit(req,res,headers))return;
+  }
   if(req.url.startsWith('/api/push/')){
    try{await push.handle(req,res,readJson,json,headers);}catch(error){if(!res.destroyed)json(res,error.status||503,{ok:false,error:error.publicMessage||'提醒服务暂不可用，本地任务仍可使用。'},headers);}return;
   }
@@ -74,7 +87,7 @@ function createServer(){
    catch(error){if(!res.destroyed)json(res,error.status||500,{ok:false,error:error.publicMessage||'AI规划失败，本地任务未改变。'},headers);}return;
   }
   if(req.url==='/api/health'&&req.method==='GET'){
-   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.2.1',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
+   json(res,200,{ok:true,app:'Deadline Hunter',version:'2.3.0',team:'路边队',provider:'DeepSeek',deepseekConfigured:!!(process.env.DEEPSEEK_API_KEY||'').trim(),model:process.env.DEEPSEEK_MODEL||'deepseek-flash',maxFileBytes:MAX_FILE_BYTES,acceptedMimeTypes:TYPES},headers);return;
   }
   if(['/api/analyze','/api/test-connection'].includes(req.url)&&req.method==='POST'){
    try{
@@ -107,7 +120,7 @@ if(require.main===module){
  const host=process.env.HOST||(process.env.RENDER==='true'?'0.0.0.0':'127.0.0.1');
  server.listen(port,host,()=>{
   const url=`http://127.0.0.1:${port}/`;
-  console.log(`Deadline Hunter V2.2.1 · 路边队 · 界面优化版\n监听：${host}:${port}\n本机访问：${url}\n按Ctrl+C停止；云端请使用Render提供的HTTPS网址。`);
+  console.log(`Deadline Hunter V2.3.0 · 路边队 · 可信识别与演示版\n监听：${host}:${port}\n本机访问：${url}\n按Ctrl+C停止；云端请使用Render提供的HTTPS网址。`);
   if(process.platform==='win32'&&process.env.OPEN_BROWSER==='1')spawn('cmd.exe',['/d','/s','/c',`start "" "${url}"`],{detached:true,stdio:'ignore',windowsHide:true}).unref();
  });
 }

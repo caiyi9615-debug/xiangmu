@@ -25,7 +25,7 @@
     const rawTime=value.timeEvidence&&typeof value.timeEvidence==='object'?value.timeEvidence:{};
     const timeEvidence={raw:String(rawTime.raw??value.dateText??'').slice(0,1000),type:Object.hasOwn(T.types,rawTime.type)?rawTime.type:T.classify(String(value.dateText||''),value),timezone:T.ZONE,
       baseAt:T.valid(rawTime.baseAt)||'',baseSource:String(rawTime.baseSource||'未提供可靠截图时间').slice(0,200),method:String(rawTime.method||'原文提取，待人工核实').slice(0,1000),
-      inferred:rawTime.inferred===true,precision:String(rawTime.precision||'未知').slice(0,200),confirmed:rawTime.confirmed===true||value.dateConfirmed===true,
+      inferred:rawTime.inferred===true,yearInferred:rawTime.yearInferred===true,yearReference:T.dateOnly(rawTime.yearReference)||'',precision:String(rawTime.precision||'未知').slice(0,200),confirmed:rawTime.confirmed===true||value.dateConfirmed===true,
       verification:['pending','estimated','confirmed','date_only','none'].includes(rawTime.verification)?rawTime.verification:(value.dateConfirmed?'confirmed':'pending')};
     // 只在有实际日期且经过用户确认时修正显示，不把无日期事项冒充精确时间。
     if(timeEvidence.confirmed&&(deadlineKind==='datetime'&&dueAt||deadlineKind==='date'&&dueDate)){
@@ -155,8 +155,9 @@
     const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Roadside Team//Deadline Hunter 2.0//ZH','CALSCALE:GREGORIAN','METHOD:PUBLISH'];
     for (const t of tasks.filter(x=>x.dueAt || x.dueDate || x.startsAt)) {
       lines.push('BEGIN:VEVENT',`UID:${t.id}@deadline-hunter.local`,`DTSTAMP:${utc(new Date())}`,
-        t.dueDate?`DTSTART;VALUE=DATE:${t.dueDate.replace(/-/g,'')}`:`DTSTART:${utc(t.dueAt || t.startsAt)}`,`SUMMARY:${escape(t.title)}`,
-        `DESCRIPTION:${escape(`${t.description}\n${t.notes}\n材料：${t.checklist.map(x=>x.text).join('、')}`)}`,
+        t.dueDate?`DTSTART;VALUE=DATE:${t.dueDate.replace(/-/g,'')}`:`DTSTART:${utc(t.dueAt || t.startsAt)}`,`SUMMARY:${escape((!t.dateConfirmed?'[待核实] ':'')+t.title)}`,
+        `STATUS:${t.dateConfirmed?'CONFIRMED':'TENTATIVE'}`,
+        `DESCRIPTION:${escape(`${t.description}\n${t.notes}\n截止依据：${T.label(t)}\n原文：${t.dateText}\n材料：${t.checklist.map(x=>x.text).join('、')}`)}`,
         `LOCATION:${escape(t.location)}`,'END:VEVENT');
     }
     lines.push('END:VCALENDAR');

@@ -7,7 +7,7 @@ const results=[],pass=name=>{results.push(name);console.log('PASS '+name);};
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
  try{
-  const ctx=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles',acceptDownloads:true});
+  const ctx=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles',acceptDownloads:true});
   const page=await ctx.newPage(),errors=[];page.on('pageerror',err=>errors.push(err.message));
   const state=()=>page.evaluate(()=>CampusStore.read());
   const nav=async pageName=>{if(await page.locator('#planDialog').isVisible()){await page.locator('#planDialog [aria-label="关闭计划"]').click();if(await page.locator('#confirmDialog').isVisible())await page.locator('#confirmDialog button[value="ok"]').click();}if(await page.locator('#taskDialog').isVisible())await page.locator('#taskDialog [data-action="close-dialog"]').click();if(await page.locator('.mobile-menu').isVisible()&&!await page.locator('#sidebar').evaluate(el=>el.classList.contains('open')))await page.locator('[data-action="menu"]').click();await page.locator(`nav a[href="#${pageName}"]`).click();};

@@ -8,12 +8,12 @@ const model={summary:'依据回答，只做课表与提醒的最小原型，不�
 (async()=>{
  const browser=await chromium.launch({headless:true,executablePath:process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'});
  try{
-  const ctx=await browser.newContext({viewport:{width:1440,height:1000}}),page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const ctx=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:1000}}),page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   const state=()=>page.evaluate(()=>CampusStore.read());
   await page.goto(base+'/#tasks');await page.getByRole('heading',{name:'任务管理中心'}).waitFor();const health=await(await page.request.get(base+'/api/health')).json();if(health.deepseekConfigured)await page.route('**/api/advisor',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'问答规划需要后端配置有效DeepSeek密钥；手动DIY仍可使用。'})}));await page.locator('[data-advisor-new]').click();await page.locator('#advisorProject [name="title"]').fill('没有配置AI的测试项目');await page.locator('#advisorProject [name="description"]').fill('想做一个学习工具，但不知道如何开始。');await page.locator('#advisorProject button[type="submit"]').click();await page.getByText(/问答规划需要后端配置有效DeepSeek密钥/).waitFor();assert.equal((await state()).tasks.length,0);pass('未配置密钥时明确失败，不伪造AI建议、不自动保存任务');
   await page.locator('[data-advisor-action="manual"]').click();await page.locator('#planForm').waitFor();assert.equal((await state()).tasks.length,1);assert.equal((await state()).tasks[0].plan,null);pass('AI不可用仍可明确选择保存项目并转本地手动DIY');
   await ctx.close();
-  const guided=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles'}),p=await guided.newPage();p.on('pageerror',e=>errors.push(e.message));
+  const guided=await browser.newContext({serviceWorkers:'block',viewport:{width:1440,height:1000},timezoneId:'America/Los_Angeles'}),p=await guided.newPage();p.on('pageerror',e=>errors.push(e.message));
   let calls=[],failDraft=false,slowQuestions=false;
   await p.route('**/api/advisor',async route=>{
    const body=route.request().postDataJSON();calls.push(body);
